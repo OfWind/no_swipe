@@ -1,0 +1,20 @@
+{
+  "name": "no-swipe-marketplace",
+  "interface": {
+    "displayName": "No Swipe Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "no-swipe",
+      "source": {
+        "source": "local",
+        "path": "./plugins/no-swipe"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

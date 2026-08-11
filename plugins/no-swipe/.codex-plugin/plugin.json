@@ -1,0 +1,29 @@
+{
+  "name": "no-swipe",
+  "version": "0.1.0",
+  "description": "Auditable Douyin recommendation-feed RPA workflows with incremental persistence and Chinese Excel delivery.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "No Swipe",
+    "shortDescription": "审计抖音推荐流测试与数据采集。",
+    "longDescription": "面向科技、3C数码和人工智能画像的抖音推荐流测试插件，支持自然停留、相关性分类、配额计划、增量 SQLite/CSV 记录、断点恢复、质量校验与中文 Excel 交付，并在验证码、限流或页面状态不可靠时停止。",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "按科技、3C数码与人工智能画像开始一轮抖音推荐流测试。",
+      "恢复上次推荐流采集，并核验 SQLite、CSV 与 RPA 反馈。",
+      "把多次推荐流测试合并成中文字段 Excel 和业务汇总。"
+    ],
+    "brandColor": "#173F5F",
+    "composerIcon": "./assets/no-swipe.svg",
+    "logo": "./assets/no-swipe.svg",
+    "logoDark": "./assets/no-swipe.svg"
+  }
+}
