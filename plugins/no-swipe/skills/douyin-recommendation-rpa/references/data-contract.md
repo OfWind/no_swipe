@@ -6,6 +6,12 @@
 
 ```json
 {
+  "run_id": "run-001",
+  "account_ref": "douyin:local:account-a",
+  "config_hash": "sha256:...",
+  "profile_id": "profile-a",
+  "profile_revision": 2,
+  "profile_hash": "sha256:...",
   "observed_at": "2026-08-07T08:29:23+00:00",
   "feed_index": 1,
   "is_relevant": true,
@@ -18,7 +24,7 @@
   "author": "作者名",
   "author_href": "推荐流中可见的链接",
   "aweme_id": "视频ID",
-  "hashtags": ["数码", "人工智能"],
+  "hashtags": ["主题A", "主题B"],
   "duration_seconds": 46.0,
   "current_position_seconds": 7.4,
   "like_count": 10000,
@@ -38,9 +44,9 @@
   "rpa_feedback": {
     "content_type": "video",
     "no_profile_navigation": true,
-    "classification_reason": "命中手机、芯片",
+    "classification_reason": "命中账号画像的高相关信号：主题A、主题B",
     "quota_decision": {
-      "policyVersion": "1.0.0",
+      "policyVersion": "2.0.0",
       "pageState": "ok",
       "relevance": "high",
       "interactionBucket": "like_only",
@@ -49,7 +55,8 @@
         "favorite": false,
         "watchToEnd": false,
         "comment": false,
-        "follow": false
+        "follow": false,
+        "notInterested": false
       },
       "completionEligible": true,
       "followCandidate": false,
@@ -62,7 +69,7 @@
 }
 ```
 
-`quota_decision.plannedActions` 只表示实验计划。点赞、收藏、评论、关注和完播的实际结果必须在页面操作或播放器状态得到可靠反馈后，写入对应事实字段或 `user_action_result`。关注候选不等于已关注；评论默认不执行。
+`quota_decision.plannedActions` 只表示实验计划。点赞、收藏、评论、关注、不感兴趣和完播的实际结果必须在页面操作或播放器状态得到可靠反馈后，写入对应事实字段或 `user_action_result`。候选不等于已执行；没有对应授权时不得尝试。
 
 ## Excel 中文字段顺序
 

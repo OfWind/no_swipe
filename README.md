@@ -2,7 +2,7 @@
 
 No Swipe is a Codex plugin for auditable Douyin recommendation-feed testing. It bundles the `douyin-recommendation-rpa` skill, browser runner, quota planner, incremental SQLite/CSV collector, validation tests, and a compact SVG icon.
 
-The default interest profile focuses on technology, 3C devices, and artificial intelligence. Interaction plans and actual UI results are recorded separately, and the workflow stops on verification, rate limits, login failures, or unreliable page state.
+Each Douyin account has one versioned logical interest profile. Runs reuse that profile and separately confirm their targets, rates, caps, and authorizations. The plugin ships no topic persona: technology, 3C, AI, and all other interests are user/account data rather than product defaults.
 
 ## Install
 
@@ -33,6 +33,8 @@ codex plugin add no-swipe@no-swipe-marketplace
 .agents/plugins/marketplace.json
 plugins/no-swipe/.codex-plugin/plugin.json
 plugins/no-swipe/assets/no-swipe.svg
+plugins/no-swipe/config/
+plugins/no-swipe/runtime/
 plugins/no-swipe/skills/douyin-recommendation-rpa/
 ```
 
@@ -40,6 +42,7 @@ plugins/no-swipe/skills/douyin-recommendation-rpa/
 
 - Operates only on a user-opened and logged-in recommendation feed.
 - Does not bypass CAPTCHA, rate limits, login gates, or access controls.
-- Comments and follows require explicit authorization for the current run.
-- Keeps quota decisions separate from verified action results.
-- Does not include collected videos, SQLite databases, CSV exports, cookies, or account credentials.
+- Every state-changing action requires explicit authorization in the confirmed run config.
+- Positive comment, follow, not-interested, and profile-visit rates require total caps.
+- Keeps planned, attempted, verified, and actual action results separate.
+- Does not include account profiles, collected videos, SQLite databases, JSONL/CSV exports, cookies, or account credentials.

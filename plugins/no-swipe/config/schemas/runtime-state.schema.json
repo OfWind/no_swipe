@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://no-swipe.local/schemas/runtime-state.schema.json",
+  "title": "No Swipe Runtime State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "config_hash", "sequence", "policy_state", "counters", "updated_at"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "config_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "sequence": {"type": "integer", "minimum": 0},
+    "policy_state": {"type": "object"},
+    "counters": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,81 +1,70 @@
-# 抖音推荐流配额随机策略
+# 抖音推荐流配额策略
 
-## 用途
+## 不提供业务默认比例
 
-这套脚本用于下一轮推荐流测试的实验分配和结果审计。它不负责点击页面，也不用于规避验证码、访问限制或任何平台安全措施。页面出现验证、限制、登录失效或无法可靠识别时，策略直接返回“停止”。
+配额模块只负责可复现的实验分配和审计，不决定账号画像、业务目标、互动比例或权限。`DEFAULT_QUOTA_CONFIG` 是全零安全配置；实际比例必须来自用户确认且带哈希的 `RunConfig`。
 
-## 默认配额
+页面出现验证、限制、登录失效或无法可靠识别时，策略直接返回停止，不分配或消耗新名额。
 
-### 高度相关内容
+## 分母与比例
 
-每完整100条高度相关内容包含：
+`RunConfig.interaction_policy.rules` 分别定义 high 和 medium 相关性池。点赞率、收藏率和二者重合率的换算为：
 
-- 23条仅点赞
-- 8条仅收藏
-- 7条点赞并收藏
-- 62条不互动
+```text
+like_only = like_rate - overlap_rate
+favorite_only = favorite_rate - overlap_rate
+like_and_favorite = overlap_rate
+none = 1 - like_rate - favorite_rate + overlap_rate
+```
 
-因此点赞率为30%，收藏率为15%，点赞与收藏同时发生的比例为7%，发生任一互动的比例为38%。
+因此必须满足：
 
-### 中等相关内容
+- `overlap_rate <= min(like_rate, favorite_rate)`；
+- `like_rate + favorite_rate - overlap_rate <= 1`；
+- 未填写不是 0，所有比例必须显式存在。
 
-每完整20条中等相关内容包含3条仅点赞，对应点赞率15%；其余不互动。
+Contract 1.0.0 中：
 
-### 完播
+- 完播候选来自 high、视频类型、时长大于 0 且不超过平台配置上限的内容；
+- 评论候选来自 high 内容；
+- 关注按唯一创作者计数，来自 high、达到重复出现门槛、推荐流显示关注入口且尚未关注的创作者；
+- 不感兴趣候选来自 none 内容；
+- profile sampling 由 runner 单独按作者抽样。
 
-仅将“高度相关、视频类型、时长大于0且不超过180秒”的内容放入完播池。每完整10条合格候选中随机分配1条完播，对应10%。实际完播必须在播放器回环验证成功后才能写入事实记录。
+## 配额随机
 
-### 关注与评论
-
-- 关注按唯一创作者计数，不按视频计数。只有重复出现不少于2次、高度相关、推荐流页直接显示关注按钮且尚未关注的创作者，才进入候选池。每完整20位合格创作者随机产生1位关注候选，对应5%。脚本不会自动关注，实际操作仍需当次确认。
-- 评论默认比例为0，不自动生成或发布评论。
-
-## 为什么使用“配额随机”
-
-纯概率抽样只能在期望上接近目标，有限样本可能波动较大。配额随机先为完整分组准备固定数量的动作，再用带种子的随机数打乱顺序：
+纯概率抽样只能在期望上接近目标，有限样本可能波动较大。配额随机先按 `block_size` 计算各动作数量，再用运行 ID 作为种子打乱顺序：
 
 - 完整分组内比例准确；
-- 同一种子和同一输入顺序可以复现；
-- 最后未满一个分组的尾段保留真实随机结果，不为凑比例补动作；
-- 每次决策都能输出所在配额池、分组位置和目标数量，便于写入RPA反馈。
+- 同一种子、同一输入顺序可复现；
+- 未满分组的尾段保留真实随机结果，不为凑比例补动作；
+- 每次决策输出配额池、分组位置和目标数量。
 
-## 使用示例
+配额计划不等于执行许可。Runner 还必须检查：
+
+1. RunConfig 状态和哈希有效；
+2. 当前账号与 `account_ref` 匹配；
+3. 对应 action authorization 为 `true`；
+4. 总上限尚未达到；
+5. 页面操作后的结果可以验证。
+
+## 使用
+
+优先从已确认配置构造策略，不要直接手写业务比例：
 
 ```js
-import { createDouyinQuotaPolicy } from "./scripts/douyin_quota_randomizer.mjs";
+import { quotaConfigFromRunConfig } from "../../../runtime/src/config.mjs";
+import { createDouyinQuotaPolicy } from "./douyin_quota_randomizer.mjs";
 
 const policy = createDouyinQuotaPolicy({
-  config: { seed: "下一轮测试会话ID" },
+  config: quotaConfigFromRunConfig(confirmedRunConfig),
 });
-
-const decision = policy.decide({
-  awemeId: "视频ID",
-  relevance: "high",
-  contentType: "video",
-  durationSeconds: 88,
-  author: "创作者名",
-  repeatHighCreatorCount: 2,
-  feedFollowVisible: true,
-  pageState: "ok",
-});
-
-if (decision.stopRequired) throw new Error(`必须停止：${decision.stopReason}`);
-
-// 只执行当次已经授权的动作，再把页面返回的实际结果写入SQLite/CSV。
-// plannedActions只表示计划，不能直接当作动作成功结果。
-const observation = {
-  rpa_feedback: {
-    quota_decision: decision,
-  },
-  user_action_result: {},
-};
-
-// 每条内容处理完成后保存状态，支持中断恢复。
-await policy.saveState("outputs/下一轮测试/quota_policy_state.json");
 ```
+
+每条观察持久化后再保存策略状态。恢复时，状态内的 `runConfigHash` 必须与已确认配置一致。
 
 运行验证：
 
 ```bash
-node scripts/douyin_quota_randomizer.test.mjs
+node --test
 ```

@@ -5,48 +5,39 @@ import path from "node:path";
 // 绕过验证码、访问限制或平台安全措施的逻辑。
 
 export const DEFAULT_QUOTA_CONFIG = Object.freeze({
-  version: "1.0.0",
-  seed: "douyin-quota-policy-v1",
+  version: "2.0.0",
+  seed: "no-swipe-safe-policy-v2",
   highInteraction: {
     blockSize: 100,
     rates: {
-      like_only: 0.23,
-      favorite_only: 0.08,
-      like_and_favorite: 0.07,
-      none: 0.62,
+      like_only: 0,
+      favorite_only: 0,
+      like_and_favorite: 0,
+      none: 1,
     },
   },
   mediumInteraction: {
-    blockSize: 20,
-    rates: {
-      like_only: 0.15,
-      none: 0.85,
-    },
+    blockSize: 100,
+    rates: { like_only: 0, favorite_only: 0, like_and_favorite: 0, none: 1 },
   },
   completion: {
-    blockSize: 10,
-    rates: {
-      complete: 0.10,
-      not_complete: 0.90,
-    },
+    blockSize: 100,
+    rates: { complete: 0, not_complete: 1 },
   },
   comment: {
-    blockSize: 50,
-    rates: {
-      comment: 0,
-      not_comment: 1,
-    },
+    blockSize: 100,
+    rates: { comment: 0, not_comment: 1 },
   },
   follow: {
-    blockSize: 20,
-    rates: {
-      candidate: 0.05,
-      not_candidate: 0.95,
-    },
+    blockSize: 100,
+    rates: { candidate: 0, not_candidate: 1 },
+  },
+  notInterested: {
+    blockSize: 100,
+    rates: { apply: 0, none: 1 },
   },
   completionMaxDurationSeconds: 180,
   minimumRepeatHighCreatorCount: 2,
-  commentRate: 0,
   stopPageStates: [
     "captcha",
     "verification",
@@ -100,6 +91,14 @@ const mergeConfig = (base, overrides = {}) => ({
     rates: {
       ...clone(base.follow.rates),
       ...clone(overrides.follow?.rates || {}),
+    },
+  },
+  notInterested: {
+    ...clone(base.notInterested),
+    ...clone(overrides.notInterested || {}),
+    rates: {
+      ...clone(base.notInterested.rates),
+      ...clone(overrides.notInterested?.rates || {}),
     },
   },
 });
@@ -267,6 +266,7 @@ const emptyDecision = (reason, pageState = "ok") => ({
     watchToEnd: false,
     comment: false,
     follow: false,
+    notInterested: false,
   },
   completionEligible: false,
   followCandidate: false,
@@ -321,6 +321,12 @@ export class DouyinQuotaPolicy {
         random,
         state: allocatorState.follow,
       }),
+      notInterested: new ShuffleBagAllocator({
+        name: "unrelated_not_interested",
+        ...this.config.notInterested,
+        random,
+        state: allocatorState.notInterested,
+      }),
     };
     this.contentAssignments = new Map(Object.entries(snapshot?.contentAssignments || {}));
     this.creatorFollowAssignments = new Map(Object.entries(snapshot?.creatorFollowAssignments || {}));
@@ -362,6 +368,9 @@ export class DouyinQuotaPolicy {
     const watchToEnd = completionAllocation?.label === "complete";
     const commentAllocation = relevance === "high" ? this.allocators.comment.next() : null;
     const commentCandidate = commentAllocation?.label === "comment";
+    const notInterestedEligible = relevance === "none" && !["live", "ad"].includes(contentType);
+    const notInterestedAllocation = notInterestedEligible ? this.allocators.notInterested.next() : null;
+    const notInterested = notInterestedAllocation?.label === "apply";
 
     const author = String(event.author || "").trim();
     const repeatHighCreatorCount = Number(event.repeatHighCreatorCount || 0);
@@ -400,6 +409,7 @@ export class DouyinQuotaPolicy {
         comment: commentCandidate,
         // 关注只是候选，实际动作必须当次确认，因此这里始终为false。
         follow: false,
+        notInterested,
       },
       completionEligible,
       followCandidate,
@@ -418,8 +428,8 @@ export class DouyinQuotaPolicy {
         completion: completionAllocation,
         comment: commentAllocation,
         follow: followAllocation,
+        notInterested: notInterestedAllocation,
         followEligible,
-        commentRate: this.config.commentRate,
         actualActionsMustBeRecordedAfterExecution: true,
       },
       reusedAssignment: false,
@@ -437,12 +447,14 @@ export class DouyinQuotaPolicy {
       watchToEnd: 0,
       uniqueFollowCandidates: 0,
       comments: 0,
+      notInterested: 0,
     };
     for (const decision of this.contentAssignments.values()) {
       planned.likes += Number(decision.plannedActions?.like === true);
       planned.favorites += Number(decision.plannedActions?.favorite === true);
       planned.watchToEnd += Number(decision.plannedActions?.watchToEnd === true);
       planned.comments += Number(decision.plannedActions?.comment === true);
+      planned.notInterested += Number(decision.plannedActions?.notInterested === true);
     }
     planned.uniqueFollowCandidates = [...this.creatorFollowAssignments.values()]
       .filter((assignment) => assignment?.label === "candidate").length;
@@ -455,6 +467,7 @@ export class DouyinQuotaPolicy {
         completion: this.allocators.completion.summary(),
         comment: this.allocators.comment.summary(),
         follow: this.allocators.follow.summary(),
+        notInterested: this.allocators.notInterested.summary(),
       },
       uniqueFollowAssignments: this.creatorFollowAssignments.size,
     };
@@ -472,6 +485,7 @@ export class DouyinQuotaPolicy {
         completion: this.allocators.completion.snapshot(),
         comment: this.allocators.comment.snapshot(),
         follow: this.allocators.follow.snapshot(),
+        notInterested: this.allocators.notInterested.snapshot(),
       },
       contentAssignments: Object.fromEntries(this.contentAssignments),
       creatorFollowAssignments: Object.fromEntries(this.creatorFollowAssignments),

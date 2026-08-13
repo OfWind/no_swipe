@@ -1,155 +1,146 @@
 ---
 name: douyin-recommendation-rpa
-description: Operate and audit a Douyin recommendation-feed RPA session for a declared interest profile, using bounded normal-distribution dwell times, relevance-based skipping, seeded quota-randomized interaction planning, incremental SQLite/CSV persistence, resumable timing, and a Chinese-field Excel deliverable. Use when asked to刷抖音推荐流, collect 3C/technology/AI videos, control like/favorite/completion/follow-candidate rates, time a target number of observed or relevant videos, save RPA feedback, merge multiple test sessions, or rebuild the required 会话摘要/测试批次/相关视频记录/字段说明 workbook.
+description: Prepare, run, resume, or audit a Douyin recommendation-feed session for the currently logged-in account. Reuse one versioned interest profile per Douyin account, ask for explicit per-run targets and interaction rates, seal a confirmed RunConfig, execute only authorized actions, and persist auditable observations. Use when the user asks to 刷抖音推荐流、训练或检查账号画像、采集推荐视频、设置点赞收藏评论关注率、恢复推荐流任务、审计 RPA 结果，or export the resulting dataset.
 ---
 
-# 抖音推荐流 RPA 采集
+# Douyin Recommendation RPA
 
-## 核心原则
+Treat the logged-in Douyin account, its interest profile, and a run as three different objects:
 
-- 仅操作用户已打开并已登录的抖音推荐流页面。默认不进入作者主页；仅当用户明确要求主页抽样时，查看约定比例创作者的公开昵称、简介或标签，随后立即返回推荐流，不浏览作品列表。
-- 仅采集推荐流页面直接可见的信息，不调用未授权接口，不绕过验证码、风控或访问限制。
-- 将 SQLite 作为事实源，每观察一条即提交；同步追加 CSV，避免中断后全部重来。
-- 区分“观察总数”和“相关视频数”。开始前从用户原话判断目标口径；有歧义时明确说明采用的口径。
-- 不为凑整伪造记录。合并后是959条就写959条，不补成1000条。
-- 互动动作只在用户授权范围内执行。未采集或未执行的字段留空，不写成“否”。
-- 将配额决策视为实验计划，不视为动作成功结果；执行后单独记录 attempted、success 和页面反馈。
-- 不把随机停留或配额互动用于规避平台检测；遇到验证、限制或页面状态不可靠时立即停止且不消耗配额。
+- One Douyin account has one current logical `AccountProfile`.
+- Updating that profile creates a new revision; never rewrite the revision used by an old run.
+- Every run embeds an immutable profile snapshot and separately records that run's goals, rates, limits, and authorizations.
 
-## 工具路由
+Do not assume any built-in topic persona. Examples such as 3C, technology, or AI are test data, not defaults.
 
-1. 使用浏览器控制技能操作用户现有登录态和推荐流页面。
-2. 使用 `scripts/douyin_browser_runner.mjs` 读取当前卡片并执行停留、跳过、互动、完播和可选主页抽样；最新预设入口为 `createTest7Runner()`，也可通过参数覆盖比例。
-3. 使用 `scripts/douyin_rpa_collector.py` 管理计时、分类、增量存储、恢复和导出。
-4. 用户明确要求互动比例时，读取 [配额随机策略](references/quota-policy.md)，使用 `scripts/douyin_quota_randomizer.mjs` 生成可复现的计划动作，并逐条保存策略状态。
-5. 使用电子表格技能和 artifact-tool 生成、编辑并验证 `.xlsx`。
-6. 如页面出现验证码、登录过期、风控提示或结构无法可靠识别，停止操作并向用户报告，不尝试规避。
+## 1. Bind or reuse the account profile
 
-## 工作流
+Identify the active logged-in account using visible, non-secret account information. Use a stable `account_ref`; never store cookies, tokens, authorization headers, or browser session material.
 
-### 1. 固化任务配置
+Look for the workspace-local account profile under `.no-swipe/accounts/`. The exact directory name may be a safe hash or stable alias of `account_ref`.
 
-记录以下参数：
+- If a matching active profile exists, load it and tell the user which profile name and revision will be reused. Do not ask the profile questions again.
+- If the account is unbound, ask once for the intended account persona: positive topics, high-priority topics if any, exclusions, and boundary guidance. Create revision 1 only after the user confirms the summary.
+- If the user explicitly asks to change the persona, create revision N+1 and keep prior revisions.
+- If the visible account does not match the selected `account_ref`, stop before any page action.
 
-- 目标画像：默认科技、3C数码、人工智能。
-- 目标数量：例如100、500、1000。
-- 计数模式：
-  - `observed`：刷到指定数量的全部推荐内容。
-  - `relevant`：持续刷，直到相关内容达到指定数量；完整候选数通常会更大。
-- 是否允许点赞、收藏、评论或“不感兴趣”。没有明确授权时只停留和刷到下一条。
-- 是否启用配额策略、各相关性分层的目标比例、完播候选范围、关注候选口径和会话随机种子。
-- 评论和关注是否获得当次明确确认。没有确认时，评论保持关闭，关注只记录候选而不执行。
-- 是否启用主页抽样；未明确要求时保持关闭。启用后只读取公开昵称、简介或标签，不浏览作品列表。
-- 输出目录、SQLite、全量CSV和相关CSV文件名。
-
-启动或恢复：
+Resolve the current revision without asking the profile questions again:
 
 ```bash
-python3 scripts/douyin_rpa_collector.py --db session.sqlite --csv all.csv --target-csv relevant.csv start --target 500 --all-videos --new
+node ../../runtime/src/cli.mjs profile resolve <account-ref> --data-dir .no-swipe
 ```
 
-去掉 `--all-videos` 表示按相关视频数量完成。不要在已有活动会话上误用 `--new`。
-
-### 2. 读取当前推荐流卡片
-
-只读取当前卡片可见字段：标题、文案、作者、作者链接、视频ID、话题、时长、播放位置、点赞/评论/分享/收藏数和页面URL。记录内容类型为视频或直播。
-
-禁止为了补字段进入作者主页。仅当用户明确要求主页抽样时才按约定比例进入，并只读取公开昵称、简介或标签后返回推荐流。页面没有展示的值保持为空。
-
-### 3. 判断相关性
-
-综合标题、文案、话题和作者可见信息进行判断：
-
-- 高相关：手机、电脑、芯片、GPU/CPU、数码评测、AI、大模型、智能体、机器人等。
-- 边界内容：只有“AI生成”“AI字幕”等平台提示时，不据此判为人工智能相关。
-- 非相关：美妆、穿搭、情感、影视、美食、舞蹈等，除非同时存在明确技术主题。
-- 直播默认直接刷走，并在反馈中记录 `content_type=live`。
-
-允许浏览器观察结果覆盖关键词自动判断，但必须把理由写进 `rpa_feedback`。
-
-### 4. 决定停留与动作
-
-使用截断正态分布采样停留时间，不固定节奏：
-
-- 相关内容：均值随兴趣评分增加，通常2.2–13.5秒。
-- 非相关内容：通常0.25–2.2秒。
-- 若已知视频总时长，将停留上限限制在结束前，避免每条都播放到底。
-- 直播和明显非相关内容立即或短暂停留后刷走。
-- 点赞、收藏、关注或评论时保持视频播放，不先点击暂停；直接划走也不先暂停。
-- 广告、直播或明确不相关内容可直接划走，或使用页面可见的“不感兴趣”菜单并记录结果。
-
-不要将“像人”解释为绕过平台检测；只实现用户要求的自然节奏和内容偏好。
-
-若用户明确启用配额策略，按以下顺序执行：
-
-1. 先可靠识别页面状态；将验证码、验证、限流、访问限制、登录失效或页面不可识别传为停止状态。
-2. 将视频ID、相关性、内容类型、时长、作者重复次数和推荐流关注按钮状态传给 `DouyinQuotaPolicy.decide()`。
-3. `stopRequired=true` 时立即停止；不要切换视频，不要消耗新配额。
-4. 仅执行本轮已授权且仍满足页面条件的 `plannedActions`。不要重复点击已选中的按钮。
-5. 关注只使用 `followCandidate` 生成唯一创作者候选；实际关注须当次确认。评论默认关闭，不自动生成或发布。
-6. 将完整决策写入 `rpa_feedback.quota_decision`，执行后另写实际动作结果，再调用 `saveState()` 原子保存配额状态。
-
-评论获得当次授权后，仍应保持低频：命中评论候选后主动打开页面可见的评论入口，只有输入框实际可见时才提交原创、主题相关的短评；不复制他人评论，不批量发布。关注与评论都要分别记录候选、尝试、成功和失败原因。
-
-主页抽样获得明确要求后，只对约定比例的高相关创作者执行；记录主页 URL、公开可见标签、画像是否命中和返回推荐流是否成功，不浏览主页作品。
-
-默认配额为：高度相关点赞30%、收藏15%、点赞与收藏重合7%；中等相关点赞15%；高度相关且不超过3分钟的视频完播10%；合格重复高相关创作者的关注候选5%；评论0%。仅在用户选择该策略或给出相同比例时使用默认值，其他比例通过配置覆盖。
-
-完整配额块保证数量准确，未满一块的尾段保持随机，不为凑比例追加动作。完播只有在播放器循环或结束状态得到可靠验证后才记为实际完播。
-
-### 5. 每条内容立即落盘
-
-先构造一条符合 [字段与交付规范](references/data-contract.md) 的 JSON，再调用：
+For a first binding or explicit revision update, validate the JSON and then use exactly one of:
 
 ```bash
-python3 scripts/douyin_rpa_collector.py --db session.sqlite --csv all.csv --target-csv relevant.csv record --json-file observation.json
+node ../../runtime/src/cli.mjs profile bind <account-profile.json> --data-dir .no-swipe
+node ../../runtime/src/cli.mjs profile update <account-profile.json> --data-dir .no-swipe
 ```
 
-一次只记录一条。确认输出 `ok=true` 后再切换下一条。至少记录刷前URL、刷后URL、滚动步数、跳转成功和 `no_profile_navigation=true`。
+`bind` rejects an already-bound account. `update` requires the same `profile_id` and exactly the next revision, so a new run cannot accidentally create a second persona for one account.
 
-启用配额策略时，同时记录策略版本、互动分组、计划动作、完播资格、关注候选、配额池位置和 `actualActionsMustBeRecordedAfterExecution=true`。计划值不能覆盖 `user_liked`、`user_favorited`、`user_commented` 等实际结果字段。
+Validate an account profile with:
 
-定期运行 `status`。浏览器或脚本中断后，重新运行 `start`（不加 `--new`）以恢复活动会话。
+```bash
+node ../../runtime/src/cli.mjs profile validate <account-profile.json>
+```
 
-### 6. 完成与质量校验
+Use `../../config/schemas/account-profile.schema.json` as the durable contract. Generate the immutable run snapshot with:
 
-达到目标后运行 `finish`。校验：
+```bash
+node ../../runtime/src/cli.mjs profile snapshot <account-profile.json>
+```
 
-- SQLite `PRAGMA integrity_check` 为 `ok`。
-- 记录总数、相关数、序号范围和目标口径一致。
-- `feed_index` 连续且无重复；视频ID重复项有明确标记。
-- CSV行数与SQLite一致，相关CSV只包含相关记录。
-- 每条都有RPA反馈；无主页导航和跳转状态可审计。
-- 停留分布有变化，且没有系统性等于视频总时长。
-- 用户互动数以动作结果为准，不把空值误计为失败。
-- 配额汇总按合格池计算；完整块的计划数量符合目标，尾段偏差单独披露。
-- 关注候选按唯一创作者去重；自动关注数和自动评论数为0。
-- 若当次明确授权关注或评论，则分别核对候选数、尝试数、实际成功数和失败原因，不能再用“自动为0”作为默认结论。
-- 主页抽样启用时，核对抽样数、标签命中数和返回成功数；未启用时相关字段保持为空。
-- 保存并回读配额状态，确认中断恢复不会重复消耗视频或创作者配额。
+## 2. Prepare every run
 
-### 7. 生成中文字段 Excel
+Ask for the following run-scoped decisions even when the profile is reused:
 
-最终工作簿至少保留以下工作表，不能因“放在一个文件”或“两个测试页”而删除辅助页：
+1. Stop target: observed item count, and optional relevant-item target. Keep the two denominators distinct.
+2. Explicit rates for each requested relevance tier: like, favorite, like-and-favorite overlap, comment, and completion.
+3. Follow rate and total cap; not-interested rate and total cap; optional profile-sampling rate and total cap.
+4. Explicit authorization for every state-changing action: like, favorite, comment, follow, not-interested, and profile visit.
+5. For a positive comment rate: total cap, per-run or per-item approval mode, and comment guidance. Comment text must be created from the current item and the user's guidance; there is no built-in fixed copy.
 
-1. `会话摘要`：每个测试批次一列，并有合计列；关键数量使用跨表公式。
-2. `测试1（N条）`、`测试2（N条）`：每个批次的全部真实记录。更多测试继续编号。
-3. `相关视频记录`：合并所有批次的相关记录，增加“测试批次”字段。
-4. `字段说明`：列出所有中文字段、含义和空值规则。
+Missing is not zero. Never silently replace an unanswered rate with `0`. If the user asks for a read-only run, record explicit zeros and all authorizations as `false`.
 
-合并规则：
+Check these semantic constraints before confirmation:
 
-- 统一到同一套中文字段，但保留原始JSON和RPA反馈。
-- 保留每次测试的会话ID和观察顺序。
-- 某次测试未采集互动字段时保持为空，并在摘要和字段说明中注明。
-- 表名中的条数使用完整记录数，不使用文件名中的旧目标数。
-- 摘要同时列出完整记录数、相关数、非相关数、直播数、互动数和会话时长。
+- All rates are between 0 and 1.
+- `like_favorite_overlap_rate <= min(like_rate, favorite_rate)`.
+- `like_rate + favorite_rate - like_favorite_overlap_rate <= 1`.
+- Every positive state-changing rate has matching authorization `true`.
+- Positive comment, follow, not-interested, or profile-visit rates have a positive total cap.
+- Contract 1.0.0 only assigns comments, completion, and follow candidates to high-relevance content.
 
-导出前检查所有工作表的关键区域、公式错误、表头、冻结窗格、筛选、日期/数字格式和视觉渲染。
+Write a draft `RunConfig` using `../../config/schemas/run-config.schema.json`, validate it, and present a compact confirmation summary containing:
 
-## 本次任务形成的可复用判断
+- account and profile revision;
+- observed/relevant targets;
+- each eligibility denominator and rate;
+- overlap semantics;
+- each total cap;
+- every authorized action;
+- adapter, classifier, policy, and contract versions.
 
-- “刷到100个相关视频”产生了459条完整候选记录；目标数不等于全量记录数。
-- 第二次按全部内容计数得到500条；合并结果应为959条，而不是人为补足1000条。
-- 用户说“测试1、测试2”只是在明细层区分批次，不表示删除会话摘要、相关视频记录和字段说明。
-- Excel是交付层，SQLite和CSV是耐中断采集层；二者职责不同，均应保留。
+Do not start browsing from `draft` or `waiting_for_confirmation`. After the user explicitly confirms that exact summary, seal the config:
+
+```bash
+node ../../runtime/src/cli.mjs run confirm <draft.json> --confirmed-by user --output <confirmed.json>
+node ../../runtime/src/cli.mjs run validate <confirmed.json> --require-confirmed
+```
+
+Any edit after confirmation invalidates `config_hash` and requires a new confirmation.
+
+## 3. Run safely
+
+Use the browser skill only with the user's already-open, logged-in tab. Do not ask for credentials. Do not bypass CAPTCHA, verification, rate limits, login gates, or access restrictions.
+
+The browser module entry is:
+
+```javascript
+import { createDouyinRunner } from "./scripts/douyin_browser_runner.mjs";
+```
+
+Create it with the confirmed `runConfig`, verified `activeAccountRef`, output paths, and—only when comments are enabled—a contextual `createCommentText` callback. Per-item comment approval also requires an `approveComment` callback. Legacy `createTest5Runner`, `createTest6Runner`, and `createTest7Runner` are compatibility aliases and must receive the same confirmed configuration; their names grant no permission and change no rate.
+
+At runtime:
+
+- Validate `status=confirmed` and `config_hash` before touching the page.
+- Stop on account mismatch before any action.
+- Classify only from the embedded profile snapshot; never add product-topic defaults.
+- Separate planned, attempted, verified, and actual action fields.
+- Enforce authorization and total caps even when a quota candidate is assigned.
+- Mark profile navigation accurately.
+- Stop immediately when the page is unreliable, verification appears, account state changes, or the next card cannot be verified. A stopped or failed item must not consume a future quota position.
+
+The human-readable browser selectors, visible UI copy, dwell parameters, and stop signals live in `../../config/platforms/douyin.v1.json`. Product goals, topic personas, permissions, and user secrets do not belong there.
+
+## 4. Persist and resume
+
+SQLite is the local fact source; JSONL/CSV are exchange or mirror formats. Persist every observation before moving on, and use the confirmed `run_id`, `account_ref`, `config_hash`, profile revision/hash, and feed sequence in records.
+
+The current collector commands remain:
+
+```bash
+python3 scripts/douyin_rpa_collector.py start --db <db> --output-dir <dir> --session-name <name> --goal <count> --interest-profile <profile-name>
+python3 scripts/douyin_rpa_collector.py record --db <db> --output-dir <dir> --payload '<json>'
+python3 scripts/douyin_rpa_collector.py status --db <db> --output-dir <dir>
+python3 scripts/douyin_rpa_collector.py finish --db <db> --output-dir <dir>
+```
+
+Until the collector is migrated to explicit `run_id` routing and idempotency constraints, do not run multiple active sessions against one database. After interruption, resume only when the saved quota state's `runConfigHash` matches the confirmed config.
+
+## 5. Audit and export
+
+Read [references/data-contract.md](references/data-contract.md) before changing observation semantics, and [references/quota-policy.md](references/quota-policy.md) before changing allocation behavior.
+
+Reports must distinguish observed, relevant, planned, attempted, verified, and actual. Never infer missing values. Blank means not observed; `false` means explicitly observed false; `0` means an observed numeric zero.
+
+For spreadsheet delivery, preserve at least:
+
+- session summary;
+- real per-batch detail;
+- relevant-item records;
+- field definitions and version metadata.
+
+Do not bundle runtime data, account profiles, cookies, credentials, SQLite files, JSONL queues, CSV exports, or workbooks in the plugin package.

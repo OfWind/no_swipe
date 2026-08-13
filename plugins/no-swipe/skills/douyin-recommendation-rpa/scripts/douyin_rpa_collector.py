@@ -19,9 +19,6 @@ import argparse
 import csv
 import hashlib
 import json
-import math
-import random
-import re
 import sqlite3
 import sys
 import time
@@ -81,103 +78,6 @@ CSV_FIELDS = [
     "raw_json",
 ]
 
-INTEREST_KEYWORDS = {
-    "数码": 2.8,
-    "3c": 3.4,
-    "手机": 2.5,
-    "iphone": 2.6,
-    "苹果": 2.0,
-    "华为": 2.4,
-    "鸿蒙": 2.8,
-    "小米": 2.2,
-    "红米": 2.2,
-    "荣耀": 2.2,
-    "vivo": 2.0,
-    "oppo": 2.0,
-    "三星": 2.0,
-    "pixel": 2.3,
-    "安卓": 2.0,
-    "android": 2.0,
-    "电脑": 2.2,
-    "笔记本": 2.5,
-    "台式机": 2.2,
-    "平板": 2.3,
-    "ipad": 2.5,
-    "耳机": 2.0,
-    "音箱": 1.8,
-    "手表": 1.8,
-    "相机": 2.0,
-    "镜头": 1.8,
-    "显卡": 2.8,
-    "gpu": 2.8,
-    "cpu": 2.6,
-    "芯片": 2.6,
-    "处理器": 2.6,
-    "屏幕": 2.0,
-    "充电": 1.8,
-    "电池": 1.8,
-    "影像": 2.0,
-    "机械键盘": 2.0,
-    "键盘": 1.7,
-    "鼠标": 1.5,
-    "路由器": 1.9,
-    "wifi": 1.9,
-    "nas": 2.0,
-    "ssd": 2.1,
-    "ddr": 2.1,
-    "显示器": 2.1,
-    "电视": 1.5,
-    "无人机": 2.0,
-    "智能家居": 2.0,
-    "智能穿戴": 2.0,
-    "科技": 2.4,
-    "开箱": 2.6,
-    "测评": 2.6,
-    "评测": 2.6,
-    "拆机": 2.5,
-    "硬件": 2.8,
-    "软件": 1.8,
-    "编程": 2.5,
-    "服务器": 2.2,
-    "算力": 2.8,
-    "手机店": 2.5,
-    "旗舰机": 2.3,
-    "折叠屏": 2.4,
-    "人工智能": 3.6,
-    "ai": 3.4,
-    "大模型": 3.5,
-    "chatgpt": 3.6,
-    "gpt": 3.0,
-    "claude": 3.2,
-    "gemini": 3.2,
-    "deepseek": 3.6,
-    "豆包": 2.8,
-    "通义": 2.8,
-    "kimi": 2.6,
-    "智能体": 3.0,
-    "agent": 2.8,
-    "机器学习": 3.2,
-    "生成式": 3.0,
-    "aigc": 3.2,
-    "机器人": 2.6,
-    "自动驾驶": 2.4,
-}
-
-NEGATIVE_KEYWORDS = {
-    "美妆": 1.3,
-    "穿搭": 1.1,
-    "情感": 1.0,
-    "影视": 1.2,
-    "电视剧": 1.2,
-    "搞笑": 0.8,
-    "美食": 1.3,
-    "探店": 1.1,
-    "舞蹈": 1.1,
-    "唱歌": 0.9,
-    "游戏": 0.7,
-}
-
-
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -215,96 +115,6 @@ def parse_clock(value: Any) -> float | None:
     if len(pieces) == 3:
         return pieces[0] * 3600 + pieces[1] * 60 + pieces[2]
     return None
-
-
-def compact_text(data: dict[str, Any]) -> str:
-    fields = [
-        data.get("title"),
-        data.get("caption"),
-        data.get("author"),
-        data.get("hashtags"),
-    ]
-    text = " ".join(str(value) for value in fields if value is not None).lower()
-    # Douyin may append a generic platform-generated summary.  It is not
-    # evidence that the video itself is about AI, so remove that boilerplate
-    # before scoring.
-    return re.sub(r"内容由ai生成|ai生成内容|ai字幕|ai翻译", "", text)
-
-
-def classify(data: dict[str, Any]) -> tuple[float, list[str], list[str], bool]:
-    text = compact_text(data)
-    body = re.sub(
-        r"内容由ai生成|ai生成内容|ai字幕|ai翻译",
-        "",
-        " ".join(
-            str(data.get(field) or "")
-            for field in ("title", "caption", "hashtags")
-        ).lower(),
-    )
-    ai_keywords = {
-        "人工智能", "ai", "大模型", "chatgpt", "gpt", "claude", "gemini",
-        "deepseek", "豆包", "通义", "kimi", "智能体", "agent", "机器学习",
-        "生成式", "aigc", "机器人", "自动驾驶",
-    }
-    token_keywords = {"ai", "ddr", "gpu", "cpu", "ssd", "nas", "wifi"}
-    matched: list[str] = []
-    negative: list[str] = []
-    score = 0.0
-    technical_context = any(
-        word in text
-        for word in (
-            "手机", "iphone", "苹果", "华为", "鸿蒙", "小米", "荣耀", "电脑",
-            "笔记本", "平板", "耳机", "相机", "显卡", "gpu", "cpu", "芯片",
-            "处理器", "屏幕", "充电", "电池", "硬件", "软件", "编程", "服务器",
-            "算力", "科技", "数码", "智能家居", "人工智能", "大模型", "chatgpt",
-            "gpt", "claude", "gemini", "deepseek", "aigc", "机器人", "装机",
-            "拆机", "手机店", "旗舰机", "折叠屏",
-        )
-    )
-    for keyword, weight in INTEREST_KEYWORDS.items():
-        source = body if keyword in ai_keywords else text
-        contains = (
-            bool(re.search(r"(?<![a-z0-9])ai(?![a-z0-9])", source))
-            if keyword == "ai"
-            else bool(
-                re.search(
-                    rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])",
-                    source,
-                )
-            )
-            if keyword in token_keywords
-            else keyword in source
-        )
-        if keyword in {"测评", "评测", "开箱"} and not technical_context:
-            contains = False
-        if contains:
-            matched.append(keyword)
-            score += weight
-    for keyword, weight in NEGATIVE_KEYWORDS.items():
-        if keyword in text:
-            negative.append(keyword)
-            score -= weight
-    score = max(0.0, min(10.0, score))
-    # A keyword hit from the target vocabulary is enough to queue a video;
-    # the explicit field lets the browser layer override borderline cases.
-    relevant = bool(matched) and score >= 1.8
-    return score, matched, negative, relevant
-
-
-def sample_dwell_seconds(relevant: bool, score: float = 0.0, rng: random.Random | None = None) -> float:
-    """Sample a bounded, non-terminal dwell time from a normal distribution."""
-    rng = rng or random
-    if relevant:
-        mean = 5.5 + min(max(score, 0.0), 10.0) * 0.28
-        sd = 2.2
-        lower, upper = 2.2, 13.5
-    else:
-        mean, sd, lower, upper = 1.0, 0.42, 0.25, 2.2
-    for _ in range(40):
-        value = rng.gauss(mean, sd)
-        if lower <= value <= upper:
-            return round(value, 2)
-    return round(max(lower, min(upper, mean)), 2)
 
 
 def db_connect(path: Path) -> sqlite3.Connection:
@@ -450,15 +260,14 @@ def flag(value: Any) -> int:
 
 
 def normalized_record(data: dict[str, Any], session: sqlite3.Row, feed_index: int, target_index: int | None) -> dict[str, Any]:
-    score, matched, negative, auto_relevant = classify(data)
-    if data.get("interest_score") is not None:
-        score = float(data["interest_score"])
-    relevant = bool(data["is_relevant"]) if "is_relevant" in data else auto_relevant
+    if "is_relevant" not in data:
+        raise ValueError("is_relevant 必须由使用 AccountProfile 快照的浏览器分类器显式提供")
+    relevant = bool(data["is_relevant"])
+    score = float(data["interest_score"]) if data.get("interest_score") is not None else None
+    matched = data.get("matched_keywords") or []
     if not relevant:
         target_index = None
     dwell = data.get("dwell_seconds")
-    if dwell is None:
-        dwell = sample_dwell_seconds(relevant, score)
     observed_at = str(data.get("observed_at") or now_iso())
     elapsed = data.get("elapsed_seconds")
     if elapsed is None:
@@ -513,14 +322,14 @@ def normalized_record(data: dict[str, Any], session: sqlite3.Row, feed_index: in
         "user_action_reason": str(data.get("user_action_reason") or ""),
         "user_action_result": json_value(action_result),
         "dwell_seconds": round(float(dwell), 2) if dwell is not None else None,
-        "interest_score": round(float(score), 3),
+        "interest_score": round(float(score), 3) if score is not None else None,
         "title": str(data.get("title") or ""),
         "caption": str(data.get("caption") or ""),
         "author": str(data.get("author") or ""),
         "author_href": str(data.get("author_href") or ""),
         "aweme_id": str(data.get("aweme_id") or ""),
         "hashtags": json_value(data.get("hashtags") or []),
-        "matched_keywords": json_value(matched + ([f"负向:{word}" for word in negative] if negative else [])),
+        "matched_keywords": json_value(matched),
         "duration_seconds": parse_clock(data.get("duration_seconds")),
         "current_position_seconds": parse_clock(data.get("current_position_seconds")),
         "like_count": parse_number(data.get("like_count")),

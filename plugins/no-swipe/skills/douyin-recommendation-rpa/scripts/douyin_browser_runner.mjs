@@ -1,6 +1,12 @@
 import fs from "node:fs/promises";
-import { classifyRecommendation, chooseDwellSeconds, sampleTruncatedNormal } from "./douyin_rpa_browser_rules.mjs";
+import path from "node:path";
+import { classifyRecommendation, chooseDwellSeconds } from "./douyin_rpa_browser_rules.mjs";
 import { createDouyinQuotaPolicy, loadDouyinQuotaPolicy } from "./douyin_quota_randomizer.mjs";
+import {
+  loadPlatformConfig,
+  quotaConfigFromRunConfig,
+  validateRunConfig,
+} from "../../../runtime/src/config.mjs";
 
 const sleep = (tab, ms) => tab.playwright.waitForTimeout(ms);
 
@@ -35,8 +41,9 @@ function toIso() {
   return new Date().toISOString();
 }
 
-function isStopText(text) {
-  return /验证码|人机验证|安全验证|访问受限|操作频繁|请求过于频繁|登录后继续|请先登录|账号异常|暂时无法访问|异常访问/i.test(text || "");
+function isStopText(text, platformConfig) {
+  const signals = platformConfig?.page_state_signals?.stop_text || [];
+  return signals.some((signal) => String(text || "").toLowerCase().includes(String(signal).toLowerCase()));
 }
 
 function cleanLine(value) {
@@ -47,7 +54,7 @@ function isTimeLine(line) {
   return /^\d{1,3}:\d{2}\s*\/\s*\d{1,3}:\d{2}$/.test(line);
 }
 
-function findTitleAndCaption(lines, authorLine) {
+function findTitleAndCaption(lines, authorLine, platformConfig) {
   const authorIndex = authorLine ? lines.indexOf(authorLine) : -1;
   let dateIndex = -1;
   for (let index = Math.max(0, authorIndex); index < lines.length; index += 1) {
@@ -58,7 +65,7 @@ function findTitleAndCaption(lines, authorLine) {
   }
   let start = dateIndex >= 0 ? dateIndex + 1 : Math.max(0, authorIndex + 1);
   while (start < lines.length && ["点击推荐", "听抖音"].includes(lines[start])) start += 1;
-  const endMarkers = new Set(["展开", "倍速", "详情", "TA的作品", "评论", "合集", "AI抖音", "相关推荐"]);
+  const endMarkers = new Set(platformConfig?.ui?.content_end_markers || []);
   let end = start;
   while (end < lines.length) {
     const line = lines[end];
@@ -71,7 +78,7 @@ function findTitleAndCaption(lines, authorLine) {
   return { title, caption: contentLines.join("\n") };
 }
 
-async function getActiveCard(tab) {
+async function getActiveCard(tab, platformConfig) {
   const videos = tab.playwright.locator("video");
   const states = await videos.evaluateAll((elements) => {
     const rects = elements.map((video) => video.getBoundingClientRect());
@@ -176,7 +183,7 @@ async function getActiveCard(tab) {
   let authorLine = lines.find((line) => /^@/.test(line));
   if (!authorLine && listenIndex >= 0) authorLine = lines.slice(listenIndex + 1).find((line) => line && !/^·/.test(line) && line !== "点击推荐");
   const author = cleanLine(authorLine).replace(/^@/, "");
-  const { title, caption } = findTitleAndCaption(lines, authorLine);
+  const { title, caption } = findTitleAndCaption(lines, authorLine, platformConfig);
   const hashtags = [...new Set(page.links.filter((link) => /^#/.test(link.text)).map((link) => link.text))];
   const fallbackHashtags = [...new Set((caption.match(/#[\w\u4e00-\u9fff.]+/g) || []))];
   const classMatch = page.className.match(/video_(\d+)/);
@@ -205,16 +212,17 @@ async function getActiveCard(tab) {
   };
 }
 
-async function readSafety(tab) {
+async function readSafety(tab, platformConfig) {
   const url = await tab.url();
   const body = (await tab.playwright.locator("body").innerText({ timeoutMs: 5000 })).slice(0, 16000);
-  const pageState = isStopText(body) ? "verification" : "ok";
+  const pageState = isStopText(body, platformConfig) ? "verification" : "ok";
   return { pageState, url, body, stopRequired: pageState !== "ok" };
 }
 
-async function resumeIfPaused(tab, card) {
-  if (!card?.paused || !/继续播放/.test(card.text)) return false;
-  const resume = tab.playwright.getByText("继续播放", { exact: true }).filter({ visible: true });
+async function resumeIfPaused(tab, card, platformConfig) {
+  const resumeText = platformConfig?.ui?.resume_text;
+  if (!card?.paused || !resumeText || !card.text.includes(resumeText)) return false;
+  const resume = tab.playwright.getByText(resumeText, { exact: true }).filter({ visible: true });
   const count = await resume.count();
   if (!count) return false;
   try {
@@ -237,10 +245,10 @@ async function getControlState(tab, cardId, type) {
   return { locator, exists: true, active: /is-digged|is-favorited|is-collect|liked|favorited|collected|selected|active/i.test(`${state} ${text}`), state, text };
 }
 
-async function clickPlannedActions(tab, card, decision) {
+async function clickPlannedActions(tab, card, decision, authorization) {
   const result = { like: { attempted: false, success: false }, favorite: { attempted: false, success: false } };
   for (const [type, planned] of [["like", decision.plannedActions.like], ["favorite", decision.plannedActions.favorite]]) {
-    if (!planned) continue;
+    if (!planned || authorization?.[type] !== true) continue;
     const control = await getControlState(tab, card.id, type);
     if (!control.exists || control.active) {
       result[type] = { attempted: false, success: control.active };
@@ -259,7 +267,7 @@ async function clickPlannedActions(tab, card, decision) {
   return result;
 }
 
-async function clickPlannedFollow(tab, card, decision) {
+async function clickPlannedFollow(tab, card, decision, platformConfig) {
   const result = { attempted: false, success: false };
   if (!decision.followCandidate || card.alreadyFollowed) return result;
   const cardLocator = tab.playwright.locator(`.video_${card.id}`);
@@ -276,7 +284,7 @@ async function clickPlannedFollow(tab, card, decision) {
     const clickTarget = (await icon.count()) ? icon.first() : follow.last();
     await clickTarget.click({ timeoutMs: 5000 });
     await sleep(tab, 320);
-    const refreshed = await getActiveCard(tab);
+    const refreshed = await getActiveCard(tab, platformConfig);
     const followState = await cardLocator.locator('[data-e2e="feed-follow-icon"]').getAttribute("data-e2e-state").catch(() => "");
     const afterMarkup = await follow.last().evaluate((element) => element.outerHTML).catch(() => "");
     const bodyText = await tab.playwright.locator("body").innerText({ timeoutMs: 5000 }).catch(() => "");
@@ -294,16 +302,13 @@ async function clickPlannedFollow(tab, card, decision) {
   return result;
 }
 
-function profileTagSignals(text) {
+function profileTagSignals(text, profile) {
   const source = String(text || "");
-  const signals = [
-    "科技", "数码", "3c", "手机", "电脑", "相机", "镜头", "芯片", "显卡", "gpu", "cpu",
-    "人工智能", "大模型", "智能体", "机器人", "ai", "提示词", "鸿蒙", "安卓", "iphone",
-  ];
+  const signals = [...(profile.positive_topics || []), ...(profile.high_priority_topics || [])];
   return [...new Set(signals.filter((signal) => source.toLowerCase().includes(signal.toLowerCase())))];
 }
 
-async function inspectAuthorProfile(tab, card) {
+async function inspectAuthorProfile(tab, card, profile, platformConfig) {
   const result = {
     attempted: true,
     sampled: true,
@@ -328,8 +333,8 @@ async function inspectAuthorProfile(tab, card) {
     await tab.goto(profileUrl);
     await sleep(tab, 850);
     const body = await tab.playwright.locator("body").innerText({ timeoutMs: 5000 });
-    result.page_state = isStopText(body) ? "verification" : "ok";
-    result.visible_labels = profileTagSignals(body);
+    result.page_state = isStopText(body, platformConfig) ? "verification" : "ok";
+    result.visible_labels = profileTagSignals(body, profile);
     result.matched_keywords = result.visible_labels;
     result.tag_hit = result.visible_labels.length > 0;
     result.reason = result.tag_hit ? "公开主页可见昵称/简介/标签命中画像信号" : "公开主页可见文本未命中画像信号";
@@ -342,7 +347,7 @@ async function inspectAuthorProfile(tab, card) {
       await tab.back();
       await sleep(tab, 900);
       result.return_url = await tab.url();
-      let returnedCard = await getActiveCard(tab);
+      let returnedCard = await getActiveCard(tab, platformConfig);
       const returnedToRecommendation = String(result.return_url || "").includes("douyin.com")
         && !/\/user\//.test(String(result.return_url || ""))
         && String(result.return_url || "").includes("recommend");
@@ -355,15 +360,15 @@ async function inspectAuthorProfile(tab, card) {
         if (!String(await tab.url()).includes("recommend")) {
           // The visible navigation href is used directly because a background
           // tab can report a zero viewport and reject an otherwise valid click.
-          await tab.goto("https://www.douyin.com/?recommend=1&from_nav=1");
+        await tab.goto(platformConfig.routes.recommendation);
           await sleep(tab, 1600);
         }
         result.return_url = await tab.url();
-        returnedCard = await getActiveCard(tab);
+        returnedCard = await getActiveCard(tab, platformConfig);
       }
       for (let attempt = 0; attempt < 4 && !returnedCard?.id; attempt += 1) {
         await sleep(tab, 1000);
-        returnedCard = await getActiveCard(tab);
+        returnedCard = await getActiveCard(tab, platformConfig);
       }
       result.returned_card_id = returnedCard?.id || "";
       result.return_ok = Boolean(
@@ -403,7 +408,7 @@ async function waitToEnd(tab, cardId, maxWaitMs = 195000) {
   return { actual: false, verification: "completion_timeout_or_unreliable", max_position_seconds: last.currentTime, duration_seconds: last.duration };
 }
 
-async function chooseNotInterested(tab, card) {
+async function chooseNotInterested(tab, card, platformConfig) {
   const result = { attempted: false, success: false };
   const video = tab.playwright.locator(`.video_${card.id} video`);
   if (!(await video.count())) return result;
@@ -411,7 +416,9 @@ async function chooseNotInterested(tab, card) {
   try {
     await video.click({ button: "right", timeoutMs: 5000 });
     await sleep(tab, 250);
-    const menu = tab.playwright.getByText("不感兴趣", { exact: true }).filter({ visible: true });
+    const menuText = platformConfig?.ui?.not_interested_text;
+    if (!menuText) return result;
+    const menu = tab.playwright.getByText(menuText, { exact: true }).filter({ visible: true });
     if (await menu.count()) {
       await menu.last().click({ timeoutMs: 5000 });
       await sleep(tab, 350);
@@ -423,38 +430,38 @@ async function chooseNotInterested(tab, card) {
   return result;
 }
 
-async function moveNext(tab, currentId) {
+async function moveNext(tab, currentId, platformConfig) {
   await tab.cua.keypress({ keys: ["ARROWDOWN"] });
-  await sleep(tab, 850);
-  let next = await getActiveCard(tab);
+  await sleep(tab, Number(platformConfig?.transition_wait_ms || 850));
+  let next = await getActiveCard(tab, platformConfig);
   // At natural video end Douyin can settle the next card slightly after the
   // first keypress acknowledgement. Recheck once before declaring a stop.
   if (next?.id === currentId) {
     await sleep(tab, 1500);
-    next = await getActiveCard(tab);
+    next = await getActiveCard(tab, platformConfig);
   }
   if (next?.id === currentId) {
     await tab.cua.keypress({ keys: ["ARROWDOWN"] });
     await sleep(tab, 1100);
-    next = await getActiveCard(tab);
+    next = await getActiveCard(tab, platformConfig);
   }
   // The slider can finish moving just after the second acknowledgement. Give
   // the visible card one final settle window before recording a transition
   // failure; this avoids treating a real move as a false stop.
   if (next?.id === currentId) {
     await sleep(tab, 1600);
-    next = await getActiveCard(tab);
+    next = await getActiveCard(tab, platformConfig);
   }
   if (!next?.id) {
     // Background tabs can leave the feed slider translated outside the
     // visible area after a key transition. Recover through the visible
     // recommendation route once, then require a fresh readable card.
-    const safety = await readSafety(tab);
+    const safety = await readSafety(tab, platformConfig);
     if (safety.stopRequired) return { next: null, transitionOk: false, recovered: false };
-    await tab.goto("https://www.douyin.com/?recommend=1&from_nav=1");
+    await tab.goto(platformConfig.routes.recommendation);
     await sleep(tab, 1800);
     for (let attempt = 0; attempt < 4 && !next?.id; attempt += 1) {
-      next = await getActiveCard(tab);
+      next = await getActiveCard(tab, platformConfig);
       if (!next?.id) await sleep(tab, 900);
     }
     return { next, transitionOk: Boolean(next && next.id && next.id !== currentId), recovered: Boolean(next?.id) };
@@ -469,21 +476,13 @@ function relevanceText(classification) {
 function classifyReason(classification, card) {
   if (card.contentType === "live") return "直播内容快速跳过";
   if (card.contentType === "ad") return "广告/推广内容快速跳过";
-  if (classification.high) return "命中高相关科技/3C/AI信号";
-  if (classification.relevant) return "命中一般相关信号";
-  return "未命中科技/3C/AI或命中排除项";
+  if (classification.high) return `命中账号画像的高相关信号：${classification.matched.join("、")}`;
+  if (classification.relevant) return `命中账号画像的一般相关信号：${classification.matched.join("、")}`;
+  if (classification.excluded?.length) return `命中账号画像排除项：${classification.excluded.join("、")}`;
+  return "未命中当前账号画像的正向主题";
 }
 
-function commentTextFor(card) {
-  const source = `${card.title} ${card.caption}`;
-  if (/comfyui|本地部署|工作流/i.test(source)) return "对低显存用户很实用，环境依赖的顺序讲得比较清楚。";
-  if (/手机|iphone|华为|小米|荣耀|oppo|vivo|一加|折叠屏/i.test(source)) return "这个点很有参考价值，实际体验和参数放在一起看更清楚。";
-  if (/相机|镜头|影像|摄影|长焦|富士|索尼|佳能|尼康/i.test(source)) return "这个细节对实际拍摄很有帮助，画面和使用场景结合得不错。";
-  if (/ai|大模型|智能体|agent|提示词|模型/i.test(source)) return "把使用场景讲清楚了，比只看功能列表更容易判断是否适合自己。";
-  return "这个角度挺有启发，关键点讲得比较清楚。";
-}
-
-async function openAndPostComment(tab, card, commentText) {
+async function openAndPostComment(tab, card, commentText, platformConfig) {
   const result = {
     planned: true,
     attempted: false,
@@ -494,13 +493,7 @@ async function openAndPostComment(tab, card, commentText) {
     error: "",
   };
   const cardLocator = tab.playwright.locator(`.video_${card.id}`);
-  const buttonSelectors = [
-    '[data-e2e="feed-comment-icon"]',
-    '[data-e2e="video-player-comment"]',
-    '[data-e2e="video-comment-icon"]',
-    'button[aria-label*="评论"]',
-    '[role="button"][aria-label*="评论"]',
-  ];
+  const buttonSelectors = platformConfig?.ui?.comment_button_selectors || [];
   let button = null;
   for (const selector of buttonSelectors) {
     const candidate = cardLocator.locator(selector).filter({ visible: true });
@@ -524,7 +517,9 @@ async function openAndPostComment(tab, card, commentText) {
   }
 
   const inputCandidates = [
-    tab.playwright.getByPlaceholder("留下你的精彩评论吧", { exact: true }).filter({ visible: true }),
+    ...(platformConfig?.ui?.comment_placeholders || []).map((placeholder) => (
+      tab.playwright.getByPlaceholder(placeholder, { exact: true }).filter({ visible: true })
+    )),
     tab.playwright.locator('textarea').filter({ visible: true }),
     tab.playwright.locator('[contenteditable="true"]').filter({ visible: true }),
   ];
@@ -542,8 +537,11 @@ async function openAndPostComment(tab, card, commentText) {
   result.input_visible = true;
   try {
     await input.fill(commentText, { timeoutMs: 5000 });
-    const publish = tab.playwright.getByText("发布", { exact: true }).filter({ visible: true });
-    if (await publish.count()) {
+    const submitText = platformConfig?.ui?.comment_submit_text;
+    const publish = submitText
+      ? tab.playwright.getByText(submitText, { exact: true }).filter({ visible: true })
+      : null;
+    if (publish && await publish.count()) {
       await publish.last().click({ timeoutMs: 5000 });
     } else {
       await input.press("Enter", { timeoutMs: 5000 });
@@ -561,124 +559,126 @@ async function openAndPostComment(tab, card, commentText) {
   return result;
 }
 
-async function loadOrCreateTest5QuotaPolicy(quotaPath, sessionId, options = {}) {
-  const completionRate = Number(options.completionRate ?? 0.15);
-  const completionBlockSize = Number(options.completionBlockSize ?? 20);
-  const followRate = Number(options.followRate ?? 0.05);
-  const followBlockSize = Number(options.followBlockSize ?? 20);
-  const commentRate = Number(options.commentRate ?? 0);
-  const commentBlockSize = Number(options.commentBlockSize ?? 50);
-  const minimumRepeatHighCreatorCount = Number(options.minimumRepeatHighCreatorCount ?? 2);
-  const enforceConfig = options.enforceConfig === true;
+async function loadOrCreateQuotaPolicy(quotaPath, runConfig) {
+  const expected = quotaConfigFromRunConfig(runConfig);
   try {
     const policy = await loadDouyinQuotaPolicy(quotaPath);
-    const savedSeed = String(policy.config?.seed || "");
-    if (savedSeed && savedSeed !== String(sessionId)) {
-      throw new Error(`配额状态种子${savedSeed}与当前会话${sessionId}不一致；请为新会话使用新的quota_policy_state.json。`);
-    }
-    if (enforceConfig) {
-      const savedCompletionRate = Number(policy.config?.completion?.rates?.complete);
-      const savedFollowRate = Number(policy.config?.follow?.rates?.candidate);
-      const savedCommentRate = Number(policy.config?.comment?.rates?.comment ?? policy.config?.commentRate ?? 0);
-      const savedMinimumRepeat = Number(policy.config?.minimumRepeatHighCreatorCount ?? 2);
-      if (
-        savedCompletionRate !== completionRate
-        || savedFollowRate !== followRate
-        || savedCommentRate !== commentRate
-        || savedMinimumRepeat !== minimumRepeatHighCreatorCount
-      ) {
-        throw new Error(`配额状态与当前测试配置不一致：完播${savedCompletionRate}、关注${savedFollowRate}、评论${savedCommentRate}、创作者门槛${savedMinimumRepeat}；期望完播${completionRate}、关注${followRate}、评论${commentRate}、创作者门槛${minimumRepeatHighCreatorCount}。请使用新的quota_policy_state.json。`);
-      }
+    if (policy.config?.runConfigHash !== runConfig.config_hash) {
+      throw new Error("配额状态与已确认 RunConfig 的哈希不一致；不能用旧状态启动或恢复本轮任务。");
     }
     return policy;
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
-    // A fresh session can override the generic policy. Existing state is loaded
-    // unchanged for resumability, so a resumed session never silently changes
-    // its experimental denominator or rates.
-    const policy = createDouyinQuotaPolicy({
-      config: {
-        seed: String(sessionId),
-        completion: {
-          blockSize: completionBlockSize,
-          rates: { complete: completionRate, not_complete: 1 - completionRate },
-        },
-        follow: {
-          blockSize: followBlockSize,
-          rates: { candidate: followRate, not_candidate: 1 - followRate },
-        },
-        comment: {
-          blockSize: commentBlockSize,
-          rates: { comment: commentRate, not_comment: 1 - commentRate },
-        },
-        commentRate,
-        minimumRepeatHighCreatorCount,
-      },
-    });
+    const policy = createDouyinQuotaPolicy({ config: expected });
     await policy.saveState(quotaPath);
     return policy;
   }
 }
 
-export async function createTest5Runner({
+export async function restoreRunnerStateFromQueue(queuePath, runConfig) {
+  const restored = {
+    counters: { comments: 0, follows: 0, notInterested: 0, profileVisits: 0 },
+    creatorCounts: new Map(),
+    profileCheckedAuthors: new Set(),
+    profileSampledAuthors: new Set(),
+  };
+  let source;
+  try {
+    source = await fs.readFile(queuePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return restored;
+    throw error;
+  }
+  for (const [index, line] of source.split(/\r?\n/).entries()) {
+    if (!line.trim()) continue;
+    let observation;
+    try {
+      observation = JSON.parse(line);
+    } catch {
+      throw new Error(`queue 第 ${index + 1} 行不是有效 JSON，拒绝在不可靠状态下恢复`);
+    }
+    if (observation.run_id !== runConfig.run_id) continue;
+    if (observation.config_hash !== runConfig.config_hash) {
+      throw new Error(`queue 第 ${index + 1} 行与 RunConfig 哈希不一致，拒绝恢复`);
+    }
+    restored.counters.comments += Number(observation.user_commented === true);
+    restored.counters.follows += Number(observation.user_followed === true);
+    restored.counters.notInterested += Number(
+      observation.action === "not_interested" || observation.rpa_feedback?.not_interested?.success === true,
+    );
+    restored.counters.profileVisits += Number(observation.profile_check_attempted === 1 || observation.profile_check_attempted === true);
+    const author = String(observation.author || "").trim();
+    if (author && observation.rpa_feedback?.relevance_level === "high") {
+      restored.creatorCounts.set(author, (restored.creatorCounts.get(author) || 0) + 1);
+      if (observation.rpa_feedback?.profile_check?.enabled) restored.profileCheckedAuthors.add(author);
+      if (observation.rpa_feedback?.profile_check?.sampled) restored.profileSampledAuthors.add(author);
+    }
+  }
+  return restored;
+}
+
+export async function createDouyinRunner({
   tab,
-  sessionId,
+  runConfig,
+  activeAccountRef,
   outputDir,
   quotaPath,
   queuePath,
-  followRate = 0.05,
-  followBlockSize = 20,
-  executeFollow = false,
-  profileSampleRate = 0,
-  commentRate = 0,
-  commentBlockSize = 50,
-  executeComments = false,
-  commentLimit = 3,
-  minimumRepeatHighCreatorCount = 2,
-  enforceQuotaConfig = false,
+  createCommentText = null,
+  approveComment = null,
+  platformConfig: suppliedPlatformConfig = null,
 }) {
-  const policy = await loadOrCreateTest5QuotaPolicy(quotaPath, sessionId, {
-    completionRate: 0.15,
-    completionBlockSize: 20,
-    followRate,
-    followBlockSize,
-    commentRate,
-    commentBlockSize,
-    minimumRepeatHighCreatorCount,
-    enforceConfig: enforceQuotaConfig,
-  });
-  const rng = makeRng(sessionId);
-  const comments = { count: 0 };
-  const creatorCounts = new Map();
+  validateRunConfig(runConfig, { requireConfirmed: true });
+  if (!activeAccountRef || activeAccountRef !== runConfig.account_ref) {
+    throw new Error(`当前浏览器账号 ${activeAccountRef || "<未识别>"} 与 RunConfig 绑定账号 ${runConfig.account_ref} 不一致，已在页面操作前停止。`);
+  }
+  for (const [name, value] of Object.entries({ outputDir, quotaPath, queuePath })) {
+    if (typeof value !== "string" || value.trim() === "") throw new Error(`${name} 必须是非空路径`);
+  }
+  const platformConfig = suppliedPlatformConfig || await loadPlatformConfig(runConfig.versions.adapter);
+  if (platformConfig.adapter_id !== runConfig.versions.adapter) throw new Error("平台配置版本与 RunConfig 不一致");
+  const commentEnabled = runConfig.interaction_policy.rules.some((rule) => rule.comment_rate > 0);
+  if (commentEnabled && typeof createCommentText !== "function") {
+    throw new Error("评论率大于 0 时必须提供 createCommentText；插件不再内置固定评论文案。");
+  }
+  if (commentEnabled && runConfig.interaction_policy.comment.approval_mode === "per_item" && typeof approveComment !== "function") {
+    throw new Error("逐条确认评论模式必须提供 approveComment 回调。");
+  }
+  const restored = await restoreRunnerStateFromQueue(queuePath, runConfig);
+  const policy = await loadOrCreateQuotaPolicy(quotaPath, runConfig);
+  const rng = makeRng(runConfig.run_id);
+  const creatorCounts = restored.creatorCounts;
   const state = {
     tab,
-    sessionId,
+    sessionId: runConfig.run_id,
+    runConfig,
+    platformConfig,
     outputDir,
     quotaPath,
     queuePath,
     policy,
     rng,
-    comments,
+    counters: restored.counters,
     creatorCounts,
-    executeFollow: Boolean(executeFollow),
-    executeComments: Boolean(executeComments),
-    commentLimit: Math.max(0, Number(commentLimit) || 0),
-    profileSampleRate: Math.max(0, Math.min(1, Number(profileSampleRate) || 0)),
-    profileCheckedAuthors: new Set(),
-    profileSampledAuthors: new Set(),
+    createCommentText,
+    approveComment,
+    profileSampleRate: runConfig.interaction_policy.profile_sampling.rate,
+    profileCheckedAuthors: restored.profileCheckedAuthors,
+    profileSampledAuthors: restored.profileSampledAuthors,
     queueCommitted: false,
   };
   await fs.mkdir(outputDir, { recursive: true });
+  await fs.mkdir(path.dirname(path.resolve(queuePath)), { recursive: true });
 
   async function processOneOnce(feedIndex) {
     state.queueCommitted = false;
-    const before = await readSafety(tab);
-    const card = await getActiveCard(tab);
+    const before = await readSafety(tab, state.platformConfig);
+    const card = await getActiveCard(tab, state.platformConfig);
     if (before.stopRequired || !card || !card.id) {
       return { feed_index: feedIndex, stop: true, stop_reason: before.pageState === "ok" ? "无法可靠识别当前推荐卡片" : before.pageState };
     }
-    await resumeIfPaused(tab, card);
-    const refreshed = await getActiveCard(tab);
+    await resumeIfPaused(tab, card, state.platformConfig);
+    const refreshed = await getActiveCard(tab, state.platformConfig);
     const effectiveCard = refreshed || card;
     const raw = {
       title: effectiveCard.title,
@@ -687,7 +687,7 @@ export async function createTest5Runner({
       author: effectiveCard.author,
       live: effectiveCard.contentType === "live",
     };
-    const classification = classifyRecommendation(raw);
+    const classification = classifyRecommendation(raw, state.runConfig.interest_profile);
     const forceSkip = effectiveCard.contentType === "live" || effectiveCard.contentType === "ad";
     const observedRelevant = classification.relevant && !forceSkip;
     const authorKey = effectiveCard.author || "";
@@ -706,12 +706,17 @@ export async function createTest5Runner({
     });
     if (decision.stopRequired) return { feed_index: feedIndex, stop: true, stop_reason: decision.stopReason };
 
+    const authorization = state.runConfig.authorization;
+    const limits = state.runConfig.interaction_policy;
     const userActionResult = observedRelevant
-      ? await clickPlannedActions(tab, effectiveCard, decision)
+      ? await clickPlannedActions(tab, effectiveCard, decision, authorization)
       : { like: { attempted: false, success: false }, favorite: { attempted: false, success: false } };
-    userActionResult.follow = observedRelevant && state.executeFollow
-      ? await clickPlannedFollow(tab, effectiveCard, decision)
+    userActionResult.follow = observedRelevant
+      && authorization.follow
+      && state.counters.follows < limits.follow.max_total
+      ? await clickPlannedFollow(tab, effectiveCard, decision, state.platformConfig)
       : { attempted: false, success: false };
+    if (userActionResult.follow.success) state.counters.follows += 1;
     const completion = { planned: Boolean(decision.plannedActions.watchToEnd), actual: false, verification: "未分配完播" };
     let action = "watch_then_next";
     let dwellSeconds;
@@ -719,7 +724,11 @@ export async function createTest5Runner({
     let userCommented = false;
     let userCommentText = "";
 
-    if (observedRelevant && decision.plannedActions.watchToEnd && effectiveCard.duration <= 180) {
+    if (
+      observedRelevant
+      && decision.plannedActions.watchToEnd
+      && effectiveCard.duration <= Number(state.platformConfig.completion_max_duration_seconds)
+    ) {
       action = "watch_to_end_then_next";
       const verified = await waitToEnd(tab, effectiveCard.id);
       completion.actual = verified.actual;
@@ -728,15 +737,21 @@ export async function createTest5Runner({
       completion.duration_seconds = verified.duration_seconds;
       dwellSeconds = Number(verified.max_position_seconds || effectiveCard.currentTime || 0);
     } else if (observedRelevant) {
-      const sampled = chooseDwellSeconds(raw, classification, rng);
+      const sampled = chooseDwellSeconds(raw, classification, rng, state.platformConfig);
       dwellSeconds = Number(sampled.toFixed(3));
       await sleep(tab, Math.max(350, Math.round(dwellSeconds * 1000)));
     } else {
       const liveOrAd = effectiveCard.contentType === "live" || effectiveCard.contentType === "ad";
-      const sampled = liveOrAd ? sampleTruncatedNormal(0.65, 0.12, 0.4, 0.9, rng) : sampleTruncatedNormal(0.9, 0.45, 0.35, 2.2, rng);
+      const sampled = chooseDwellSeconds({ ...raw, live: liveOrAd }, { relevant: false, high: false }, rng, state.platformConfig);
       dwellSeconds = Number(sampled.toFixed(3));
-      if (liveOrAd || rng() < 0.68) {
-        notInterested = liveOrAd ? null : await chooseNotInterested(tab, effectiveCard);
+      if (
+        !liveOrAd
+        && decision.plannedActions.notInterested
+        && authorization.not_interested
+        && state.counters.notInterested < limits.not_interested.max_total
+      ) {
+        notInterested = await chooseNotInterested(tab, effectiveCard, state.platformConfig);
+        if (notInterested.success) state.counters.notInterested += 1;
         action = notInterested?.success ? "not_interested" : "direct_skip";
       } else {
         action = "direct_skip";
@@ -755,14 +770,25 @@ export async function createTest5Runner({
     if (
       observedRelevant
       && classification.high
-      && state.executeComments
+      && authorization.comment
       && decision.commentCandidate
-      && state.comments.count < state.commentLimit
+      && state.counters.comments < limits.comment.max_total
     ) {
-      userCommentText = commentTextFor(effectiveCard);
-      commentResult = await openAndPostComment(tab, effectiveCard, userCommentText);
-      userCommented = Boolean(commentResult.success);
-      if (userCommented) state.comments.count += 1;
+      userCommentText = cleanLine(await state.createCommentText({
+        card: effectiveCard,
+        profile: state.runConfig.interest_profile,
+        guidance: limits.comment.guidance,
+        runId: state.runConfig.run_id,
+      }));
+      const approved = limits.comment.approval_mode === "per_run"
+        || await state.approveComment({ card: effectiveCard, text: userCommentText });
+      if (approved && userCommentText) {
+        commentResult = await openAndPostComment(tab, effectiveCard, userCommentText, state.platformConfig);
+        userCommented = Boolean(commentResult.success);
+        if (userCommented) state.counters.comments += 1;
+      } else {
+        commentResult.error = approved ? "comment_text_empty" : "comment_not_approved";
+      }
     }
 
     let profileCheck = {
@@ -777,12 +803,20 @@ export async function createTest5Runner({
       && authorKey
       && effectiveCard.authorHref
       && state.profileSampleRate > 0
+      && authorization.profile_visit
+      && state.counters.profileVisits < limits.profile_sampling.max_total
       && !state.profileCheckedAuthors.has(authorKey)
     ) {
       state.profileCheckedAuthors.add(authorKey);
       if (rng() < state.profileSampleRate) {
         state.profileSampledAuthors.add(authorKey);
-        profileCheck = await inspectAuthorProfile(tab, effectiveCard);
+        profileCheck = await inspectAuthorProfile(
+          tab,
+          effectiveCard,
+          state.runConfig.interest_profile,
+          state.platformConfig,
+        );
+        if (profileCheck.attempted) state.counters.profileVisits += 1;
       }
     }
 
@@ -790,12 +824,12 @@ export async function createTest5Runner({
     const transitionBaseId = profileCheck.returned_card_id || effectiveCard.id;
     const transition = profileCheck.stop_required
       ? { next: null, transitionOk: false }
-      : await moveNext(tab, transitionBaseId);
+      : await moveNext(tab, transitionBaseId, state.platformConfig);
     const afterUrl = await tab.url();
     const feedback = {
       content_type: effectiveCard.contentType,
       page_state: before.pageState,
-      no_profile_navigation: true,
+      no_profile_navigation: profileCheck.attempted !== true,
       classification_reason: classifyReason(classification, effectiveCard),
       relevance_level: forceSkip ? "none" : relevanceText(classification),
       interaction_mode: "quota_randomized",
@@ -819,6 +853,12 @@ export async function createTest5Runner({
       page_transition: { before_aweme_id: effectiveCard.id, after_aweme_id: transition.next?.id || "", success: transition.transitionOk },
     };
     const observation = {
+      run_id: state.runConfig.run_id,
+      account_ref: state.runConfig.account_ref,
+      config_hash: state.runConfig.config_hash,
+      profile_id: state.runConfig.interest_profile.profile_id,
+      profile_revision: state.runConfig.interest_profile.revision,
+      profile_hash: state.runConfig.interest_profile.profile_hash,
       observed_at: toIso(),
       feed_index: feedIndex,
       is_relevant: Boolean(observedRelevant),
@@ -858,7 +898,7 @@ export async function createTest5Runner({
       profile_return_ok: profileCheck.attempted === true && "return_ok" in profileCheck ? (profileCheck.return_ok ? 1 : 0) : null,
       user_commented: userCommented,
       user_comment_text: userCommentText,
-      user_action_reason: observedRelevant ? "按相关性进入正向反馈配额池。" : "非相关或直播/广告内容快速跳过。",
+      user_action_reason: observedRelevant ? "按已确认账号画像和本轮配额进入正向反馈池。" : "非相关或直播/广告内容按本轮配置处理。",
       user_action_result: userActionResult,
       rpa_feedback: feedback,
     };
@@ -894,32 +934,19 @@ export async function createTest5Runner({
     return waitToEnd(tab, cardId);
   }
 
-  return { processOne, completeCurrent, getActiveCard: () => getActiveCard(tab), state };
+  return { processOne, completeCurrent, getActiveCard: () => getActiveCard(tab, state.platformConfig), state };
+}
+
+// Backward-compatible names deliberately share the same confirmed RunConfig
+// path. Test labels can no longer alter rates or grant interaction permission.
+export async function createTest5Runner(args) {
+  return createDouyinRunner(args);
 }
 
 export async function createTest6Runner(args) {
-  return createTest5Runner({
-    ...args,
-    followRate: 0.10,
-    followBlockSize: 10,
-    executeFollow: true,
-    profileSampleRate: 0.10,
-    enforceQuotaConfig: true,
-  });
+  return createDouyinRunner(args);
 }
 
 export async function createTest7Runner(args) {
-  return createTest5Runner({
-    ...args,
-    followRate: 0.10,
-    followBlockSize: 10,
-    executeFollow: true,
-    profileSampleRate: 0.10,
-    commentRate: 0.02,
-    commentBlockSize: 50,
-    executeComments: true,
-    commentLimit: 5,
-    minimumRepeatHighCreatorCount: 0,
-    enforceQuotaConfig: true,
-  });
+  return createDouyinRunner(args);
 }

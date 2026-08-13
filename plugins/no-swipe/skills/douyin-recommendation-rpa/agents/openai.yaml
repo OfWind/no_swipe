@@ -1,4 +1,4 @@
 interface:
-  display_name: "抖音推荐流 RPA 采集"
-  short_description: "按配额随机采集推荐流、增量保存并生成中文Excel"
-  default_prompt: "Use $douyin-recommendation-rpa to run and audit a resumable Douyin recommendation-feed test with authorized quota-randomized actions."
+  display_name: "抖音账号画像与推荐流 RPA"
+  short_description: "复用账号画像，确认每轮比例授权后采集推荐流"
+  default_prompt: "Use $douyin-recommendation-rpa to reuse or bind the active account profile, prepare an explicit RunConfig, request confirmation, and only then run or audit the recommendation feed."

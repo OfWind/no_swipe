@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://no-swipe.local/schemas/run-config.schema.json",
+  "title": "No Swipe Confirmed Run Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "account_ref", "interest_profile", "goal",
+    "interaction_policy", "authorization", "versions", "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "account_ref": {"type": "string", "minLength": 1},
+    "interest_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "account_ref", "revision", "profile_hash", "name", "positive_topics", "negative_topics", "boundary_guidance"],
+      "properties": {
+        "profile_id": {"type": "string", "minLength": 1},
+        "account_ref": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1},
+        "profile_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "name": {"type": "string", "minLength": 1},
+        "positive_topics": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "high_priority_topics": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "negative_topics": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "boundary_guidance": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "classification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["high_match_count"],
+          "properties": {"high_match_count": {"type": "integer", "minimum": 1}}
+        }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed_target", "relevant_target"],
+      "properties": {
+        "observed_target": {"type": "integer", "minimum": 1},
+        "relevant_target": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "interaction_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules", "comment", "follow", "not_interested", "profile_sampling"],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["eligible_relevance", "like_rate", "favorite_rate", "like_favorite_overlap_rate", "comment_rate", "completion_rate", "block_size"],
+            "properties": {
+              "eligible_relevance": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["high", "medium"]}},
+              "like_rate": {"type": "number", "minimum": 0, "maximum": 1},
+              "favorite_rate": {"type": "number", "minimum": 0, "maximum": 1},
+              "like_favorite_overlap_rate": {"type": "number", "minimum": 0, "maximum": 1},
+              "comment_rate": {"type": "number", "minimum": 0, "maximum": 1},
+              "completion_rate": {"type": "number", "minimum": 0, "maximum": 1},
+              "block_size": {"type": "integer", "minimum": 1}
+            }
+          }
+        },
+        "comment": {
+          "type": "object", "additionalProperties": false,
+          "required": ["max_total", "approval_mode", "guidance"],
+          "properties": {
+            "max_total": {"type": "integer", "minimum": 0},
+            "approval_mode": {"enum": ["per_run", "per_item"]},
+            "guidance": {"type": "string"}
+          }
+        },
+        "follow": {
+          "type": "object", "additionalProperties": false,
+          "required": ["eligible_relevance", "rate", "max_total", "minimum_repeat_creator_count", "block_size"],
+          "properties": {
+            "eligible_relevance": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["high"]}},
+            "rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "max_total": {"type": "integer", "minimum": 0},
+            "minimum_repeat_creator_count": {"type": "integer", "minimum": 0},
+            "block_size": {"type": "integer", "minimum": 1}
+          }
+        },
+        "not_interested": {
+          "type": "object", "additionalProperties": false,
+          "required": ["rate", "max_total", "block_size"],
+          "properties": {
+            "rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "max_total": {"type": "integer", "minimum": 0},
+            "block_size": {"type": "integer", "minimum": 1}
+          }
+        },
+        "profile_sampling": {
+          "type": "object", "additionalProperties": false,
+          "required": ["rate", "max_total"],
+          "properties": {
+            "rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "max_total": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["like", "favorite", "comment", "follow", "not_interested", "profile_visit"],
+      "properties": {
+        "like": {"type": "boolean"},
+        "favorite": {"type": "boolean"},
+        "comment": {"type": "boolean"},
+        "follow": {"type": "boolean"},
+        "not_interested": {"type": "boolean"},
+        "profile_visit": {"type": "boolean"}
+      }
+    },
+    "versions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["adapter", "classifier", "policy", "contract"],
+      "properties": {
+        "adapter": {"type": "string", "minLength": 1},
+        "classifier": {"type": "string", "minLength": 1},
+        "policy": {"type": "string", "minLength": 1},
+        "contract": {"const": "1.0.0"}
+      }
+    },
+    "status": {"enum": ["draft", "waiting_for_confirmation", "confirmed"]},
+    "confirmed_at": {"type": "string", "format": "date-time"},
+    "confirmed_by": {"type": "string", "minLength": 1},
+    "config_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+  }
+}

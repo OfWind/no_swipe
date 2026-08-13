@@ -4,7 +4,12 @@
 *.sqlite
 *.sqlite-*
 *.csv
+*.jsonl
+*.xlsx
+*.log
 outputs/
+.no-swipe/
+coverage/
 node_modules/
 __pycache__/
 *.pyc

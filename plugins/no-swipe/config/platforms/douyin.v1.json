@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0.0",
+  "adapter_id": "douyin.v1",
+  "routes": {
+    "recommendation": "https://www.douyin.com/?recommend=1&from_nav=1"
+  },
+  "page_state_signals": {
+    "stop_text": [
+      "验证码",
+      "人机验证",
+      "安全验证",
+      "访问受限",
+      "操作频繁",
+      "请求过于频繁",
+      "登录后继续",
+      "请先登录",
+      "账号异常",
+      "暂时无法访问",
+      "异常访问"
+    ]
+  },
+  "ui": {
+    "content_end_markers": ["展开", "倍速", "详情", "TA的作品", "评论", "合集", "AI抖音", "相关推荐"],
+    "comment_button_selectors": [
+      "[data-e2e=\"feed-comment-icon\"]",
+      "[data-e2e=\"video-player-comment\"]",
+      "[data-e2e=\"video-comment-icon\"]",
+      "button[aria-label*=\"评论\"]",
+      "[role=\"button\"][aria-label*=\"评论\"]"
+    ],
+    "comment_placeholders": ["留下你的精彩评论吧"],
+    "comment_submit_text": "发布",
+    "not_interested_text": "不感兴趣",
+    "resume_text": "继续播放"
+  },
+  "dwell_seconds": {
+    "high": {"mean": 8.0, "standard_deviation": 2.5, "minimum": 3.0, "maximum": 18.0},
+    "medium": {"mean": 4.0, "standard_deviation": 1.5, "minimum": 1.5, "maximum": 10.0},
+    "unrelated": {"mean": 0.9, "standard_deviation": 0.45, "minimum": 0.35, "maximum": 2.2},
+    "live_or_ad": {"mean": 0.65, "standard_deviation": 0.12, "minimum": 0.4, "maximum": 0.9}
+  },
+  "completion_max_duration_seconds": 180,
+  "transition_wait_ms": 850
+}

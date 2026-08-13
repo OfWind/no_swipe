@@ -16,7 +16,30 @@ const countActions = (decisions) => ({
   comments: decisions.filter((item) => item.plannedActions.comment).length,
 });
 
-const policy = createDouyinQuotaPolicy({ config: { seed: "quota-unit-test" } });
+const EXPLICIT_TEST_CONFIG = {
+  highInteraction: {
+    blockSize: 100,
+    rates: { like_only: 0.23, favorite_only: 0.08, like_and_favorite: 0.07, none: 0.62 },
+  },
+  mediumInteraction: {
+    blockSize: 20,
+    rates: { like_only: 0.15, favorite_only: 0, like_and_favorite: 0, none: 0.85 },
+  },
+  completion: { blockSize: 10, rates: { complete: 0.10, not_complete: 0.90 } },
+};
+
+const safePolicy = createDouyinQuotaPolicy({ config: { seed: "safe-default-test" } });
+const safeDecision = safePolicy.decide({ awemeId: "safe", relevance: "high", contentType: "video", durationSeconds: 60 });
+assert.deepEqual(safeDecision.plannedActions, {
+  like: false,
+  favorite: false,
+  watchToEnd: false,
+  comment: false,
+  follow: false,
+  notInterested: false,
+});
+
+const policy = createDouyinQuotaPolicy({ config: { seed: "quota-unit-test", ...EXPLICIT_TEST_CONFIG } });
 const highDecisions = [];
 for (let index = 1; index <= 100; index += 1) {
   highDecisions.push(policy.decide({
@@ -39,6 +62,7 @@ assert.deepEqual(countActions(highDecisions), {
 const higherCompletionPolicy = createDouyinQuotaPolicy({
   config: {
     seed: "higher-completion-unit-test",
+    ...EXPLICIT_TEST_CONFIG,
     completion: { blockSize: 20, rates: { complete: 0.15, not_complete: 0.85 } },
   },
 });
@@ -68,7 +92,12 @@ assert.equal(mediumDecisions.filter((item) => item.plannedActions.like).length, 
 assert.equal(mediumDecisions.filter((item) => item.plannedActions.favorite).length, 0);
 assert.equal(mediumDecisions.filter((item) => item.plannedActions.watchToEnd).length, 0);
 
-const followPolicy = createDouyinQuotaPolicy({ config: { seed: "follow-unit-test" } });
+const followPolicy = createDouyinQuotaPolicy({
+  config: {
+    seed: "follow-unit-test",
+    follow: { blockSize: 20, rates: { candidate: 0.05, not_candidate: 0.95 } },
+  },
+});
 const followDecisions = [];
 for (let index = 1; index <= 20; index += 1) {
   followDecisions.push(followPolicy.decide({
@@ -131,7 +160,7 @@ assert.equal(policy.summary().pools.highInteraction.eligibleCount, duplicateBefo
 const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "douyin-quota-policy-"));
 const statePath = path.join(temporaryDirectory, "state.json");
 try {
-  const resumablePolicy = createDouyinQuotaPolicy({ config: { seed: "resume-unit-test" } });
+  const resumablePolicy = createDouyinQuotaPolicy({ config: { seed: "resume-unit-test", ...EXPLICIT_TEST_CONFIG } });
   for (let index = 1; index <= 50; index += 1) {
     resumablePolicy.decide({
       awemeId: `resume-${index}`,

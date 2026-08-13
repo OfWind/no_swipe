@@ -1,0 +1,16 @@
+{
+  "name": "no-swipe-plugin",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "npm run test:node && npm run test:python",
+    "test:node": "node --test",
+    "test:python": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/collector -p 'test_*.py'",
+    "config:validate": "node runtime/src/cli.mjs",
+    "check": "node --check runtime/src/config.mjs && node --check runtime/src/cli.mjs && node --check skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs && node --check skills/douyin-recommendation-rpa/scripts/douyin_quota_randomizer.mjs"
+  }
+}

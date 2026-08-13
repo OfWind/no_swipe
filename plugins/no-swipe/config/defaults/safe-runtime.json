@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "default_run_status": "draft",
+  "require_account_binding": true,
+  "require_confirmed_config": true,
+  "authorization_defaults": {
+    "like": false,
+    "favorite": false,
+    "comment": false,
+    "follow": false,
+    "not_interested": false,
+    "profile_visit": false
+  },
+  "stop_on_account_mismatch": true,
+  "stop_on_unknown_page_state": true,
+  "persist_after_each_observation": true
+}

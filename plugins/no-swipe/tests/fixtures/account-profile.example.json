@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "profile_id": "profile-photography-a",
+  "platform": "douyin",
+  "account_ref": "douyin:local:account-a",
+  "revision": 1,
+  "name": "摄影器材与影像创作",
+  "positive_topics": ["相机", "镜头", "摄影", "影像创作"],
+  "high_priority_topics": ["相机评测", "镜头实拍"],
+  "negative_topics": ["婚庆接单"],
+  "boundary_guidance": ["只出现拍摄画面但没有器材或创作信息时，不直接判为相关。"],
+  "classification": {
+    "high_match_count": 2
+  },
+  "created_at": "2026-08-13T00:00:00.000Z",
+  "updated_at": "2026-08-13T00:00:00.000Z"
+}

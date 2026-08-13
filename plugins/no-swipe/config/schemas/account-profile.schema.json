@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://no-swipe.local/schemas/account-profile.schema.json",
+  "title": "No Swipe Douyin Account Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "profile_id", "platform", "account_ref", "revision",
+    "name", "positive_topics", "negative_topics", "boundary_guidance",
+    "created_at", "updated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "profile_id": {"type": "string", "minLength": 1},
+    "platform": {"const": "douyin"},
+    "account_ref": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "name": {"type": "string", "minLength": 1},
+    "positive_topics": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "high_priority_topics": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "negative_topics": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "boundary_guidance": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["high_match_count"],
+      "properties": {"high_match_count": {"type": "integer", "minimum": 1}}
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

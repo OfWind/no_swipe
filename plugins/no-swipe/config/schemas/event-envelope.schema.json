@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://no-swipe.local/schemas/event-envelope.schema.json",
+  "title": "No Swipe Event Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "idempotency_key", "run_id", "account_ref", "sequence", "event_type", "observed_at", "payload"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "event_id": {"type": "string", "minLength": 1},
+    "idempotency_key": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "account_ref": {"type": "string", "minLength": 1},
+    "sequence": {"type": "integer", "minimum": 1},
+    "event_type": {"enum": ["observation.recorded", "action.attempted", "action.verified", "run.stopped", "run.completed"]},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "payload": {"type": "object"}
+  }
+}
