@@ -65,13 +65,17 @@ class SupabaseUploadTest(unittest.TestCase):
         self.conn.close()
         self.temporary.cleanup()
 
-    def add_record(self, observation_id="record-1"):
+    def add_record(
+        self,
+        observation_id="record-1",
+        observed_at="2026-08-13T12:00:00Z",
+    ):
         row = COLLECTOR.normalized_record(
             {
                 "observation_id": observation_id,
                 "is_relevant": True,
                 "feed_index": 1,
-                "observed_at": "2026-08-13T20:00:00+08:00",
+                "observed_at": observed_at,
                 "decision": "keep",
                 "action": "watch_then_next",
                 "dwell_seconds": 2.5,
@@ -92,7 +96,23 @@ class SupabaseUploadTest(unittest.TestCase):
         payload = json.loads(queued["payload"])
         self.assertEqual(payload["contract_version"], 2)
         self.assertEqual(payload["record_id"], "record-1")
-        self.assertTrue(payload["observed_at"].endswith("+08:00"))
+        self.assertEqual(payload["observed_at"], "2026-08-13T12:00:00Z")
+
+    def test_utc_observation_is_preserved_during_durable_insert(self):
+        self.add_record("utc-record", observed_at="2026-08-13T12:00:00Z")
+
+        observation = self.conn.execute(
+            "SELECT observed_at FROM observations WHERE observation_id='utc-record'"
+        ).fetchone()
+        queued = self.conn.execute(
+            "SELECT payload FROM outbox WHERE record_id='utc-record'"
+        ).fetchone()
+
+        self.assertEqual(observation["observed_at"], "2026-08-13T12:00:00Z")
+        self.assertEqual(
+            json.loads(queued["payload"])["observed_at"],
+            "2026-08-13T12:00:00Z",
+        )
 
     def test_accepted_and_duplicate_acknowledgements_mark_sent(self):
         self.add_record("accepted-1")
@@ -241,6 +261,30 @@ class SupabaseUploadTest(unittest.TestCase):
         self.assertEqual(self.conn.execute(
             "SELECT status FROM outbox WHERE record_id='mcp-record-1'"
         ).fetchone()["status"], "sent")
+
+    def test_mcp_batch_preserves_explicit_observation_timezone(self):
+        self.add_record("legacy-utc-record")
+        queued = self.conn.execute(
+            "SELECT payload FROM outbox WHERE record_id='legacy-utc-record'"
+        ).fetchone()
+        payload = json.loads(queued["payload"])
+        payload["observed_at"] = "2026-08-13T12:00:00Z"
+        self.conn.execute(
+            "UPDATE outbox SET payload=? WHERE record_id='legacy-utc-record'",
+            (json.dumps(payload),),
+        )
+        self.conn.commit()
+
+        batch = uploader.prepare_mcp_batch(self.conn, config=self.config)
+
+        self.assertEqual(
+            batch["arguments"]["records"][0]["observed_at"],
+            "2026-08-13T12:00:00Z",
+        )
+        stored = self.conn.execute(
+            "SELECT payload FROM outbox WHERE record_id='legacy-utc-record'"
+        ).fetchone()
+        self.assertEqual(json.loads(stored["payload"])["observed_at"], "2026-08-13T12:00:00Z")
 
     def test_mcp_ack_rejects_ids_outside_the_emitted_batch(self):
         self.add_record("mcp-record-1")

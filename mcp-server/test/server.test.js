@@ -4,6 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/app.js";
 import { createSupabaseTokenVerifier } from "../src/auth.js";
+import { recordSchema } from "../src/mcp.js";
 
 const config = {
   port: 0,
@@ -19,7 +20,7 @@ const config = {
 
 const validRecord = {
   record_id: "record-1",
-  observed_at: "2026-08-14T12:00:00+08:00",
+  observed_at: "2026-08-14T04:00:00Z",
   feed_index: 1,
   is_relevant: true,
   decision: "keep",
@@ -30,7 +31,7 @@ const validBatch = {
   session_id: "session-1",
   client: { plugin_version: "0.2.0" },
   task_config: {},
-  started_at: "2026-08-14T12:00:00+08:00",
+  started_at: "2026-08-14T04:00:00Z",
   finished_at: null,
   stats: {},
   heartbeat: {},
@@ -113,6 +114,20 @@ test("authorized MCP client can list tools and upload an idempotent batch", asyn
   assert.equal(captured.token, "valid-token");
   assert.deepEqual(captured.body, validBatch);
   await client.close();
+});
+
+test("MCP timestamp schema accepts explicit timezones and rejects bare local time", () => {
+  for (const observed_at of [
+    "2026-08-14T04:00:00Z",
+    "2026-08-14T09:30:00+05:30",
+    "2026-08-13T23:00:00-05:00",
+  ]) {
+    assert.equal(recordSchema.safeParse({ ...validRecord, observed_at }).success, true);
+  }
+  assert.equal(recordSchema.safeParse({
+    ...validRecord,
+    observed_at: "2026-08-14T12:00:00",
+  }).success, false);
 });
 
 test("Supabase verifier requires OAuth client and authenticated audience", async () => {

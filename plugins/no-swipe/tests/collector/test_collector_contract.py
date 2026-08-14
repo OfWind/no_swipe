@@ -46,6 +46,43 @@ class CollectorContractTest(unittest.TestCase):
         self.assertEqual(json.loads(row["matched_keywords"]), ["用户画像主题"])
         self.assertEqual(row["interest_score"], 6.0)
 
+    def test_collector_preserves_utc_observed_at(self):
+        row = COLLECTOR.normalized_record(
+            {
+                "feed_index": 1,
+                "is_relevant": True,
+                "observed_at": "2026-08-13T12:00:00Z",
+            },
+            self.session,
+            1,
+            1,
+        )
+
+        self.assertEqual(row["observed_at"], "2026-08-13T12:00:00Z")
+
+    def test_collector_defaults_to_utc(self):
+        row = COLLECTOR.normalized_record(
+            {"feed_index": 1, "is_relevant": True},
+            self.session,
+            1,
+            1,
+        )
+
+        self.assertTrue(row["observed_at"].endswith("Z"))
+
+    def test_collector_rejects_timezone_less_observed_at(self):
+        with self.assertRaisesRegex(ValueError, "observed_at.*时区"):
+            COLLECTOR.normalized_record(
+                {
+                    "feed_index": 1,
+                    "is_relevant": True,
+                    "observed_at": "2026-08-13T12:00:00",
+                },
+                self.session,
+                1,
+                1,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,7 +24,7 @@ import sqlite3
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -35,6 +35,7 @@ if str(SCRIPT_ROOT) not in sys.path:
 from collector.auth import AuthClient, AuthError
 from collector.config import load_config
 from collector.outbox import ensure_outbox_schema, queue_record, refresh_queued_record
+from collector.timestamps import require_timezone_timestamp
 from collector.uploader import apply_mcp_ack, flush_pending, prepare_mcp_batch, queue_counts
 
 
@@ -42,8 +43,6 @@ ROOT = SCRIPT_ROOT
 DEFAULT_DB = ROOT / "douyin_rpa_session.sqlite"
 DEFAULT_CSV = ROOT / "douyin_rpa_observations.csv"
 DEFAULT_TARGET_CSV = ROOT / "douyin_rpa_target_100.csv"
-BEIJING = timezone(timedelta(hours=8))
-
 CSV_FIELDS = [
     "observation_id",
     "session_id",
@@ -90,7 +89,7 @@ CSV_FIELDS = [
 ]
 
 def now_iso() -> str:
-    return datetime.now(BEIJING).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def parse_number(value: Any) -> float | None:
@@ -280,7 +279,10 @@ def normalized_record(data: dict[str, Any], session: sqlite3.Row, feed_index: in
     if not relevant:
         target_index = None
     dwell = data.get("dwell_seconds")
-    observed_at = str(data.get("observed_at") or now_iso())
+    observed_at = require_timezone_timestamp(
+        str(data.get("observed_at") or now_iso()),
+        "observed_at",
+    )
     elapsed = data.get("elapsed_seconds")
     if elapsed is None:
         elapsed = max(0.0, time.time() - float(session["started_epoch"]))

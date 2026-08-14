@@ -14,7 +14,7 @@
   "profile_id": "profile-a",
   "profile_revision": 2,
   "profile_hash": "sha256:...",
-  "observed_at": "2026-08-07T16:29:23+08:00",
+  "observed_at": "2026-08-07T08:29:23Z",
   "feed_index": 1,
   "is_relevant": true,
   "decision": "keep",
@@ -71,7 +71,7 @@
 }
 ```
 
-`contract_version` 固定为 `2`。`record_id` 由客户端生成，并与当前用户和会话共同构成服务端幂等键。所有时间戳使用 ISO 8601 北京时间并显式以 `+08:00` 结尾；不发送裸本地时间或 `Z` 时间。
+`contract_version` 固定为 `2`。`record_id` 由客户端生成，并与当前用户和会话共同构成服务端幂等键。所有时间戳使用带明确时区的 RFC 3339 格式；接受 UTC `Z` 或数字偏移（例如 `+08:00`、`-05:00`），拒绝没有时区信息的裸本地时间。客户端默认发送 UTC `Z`，Supabase 使用 `timestamptz` 保存绝对时间。面向用户展示时按 `Asia/Shanghai` 转换为北京时间，不把 `+08:00` 作为上传准入条件。
 
 `quota_decision.plannedActions` 只表示实验计划。点赞、收藏、评论、关注、不感兴趣和完播的实际结果必须在页面操作或播放器状态得到可靠反馈后，写入对应事实字段或 `user_action_result`。候选不等于已执行；没有对应授权时不得尝试。
 
@@ -143,7 +143,7 @@ SQLite 是本地事实源；每条观察与对应 outbox 项在同一事务提�
     "host_fingerprint": "不可逆短哈希"
   },
   "task_config": {},
-  "started_at": "2026-08-07T16:20:00+08:00",
+  "started_at": "2026-08-07T08:20:00Z",
   "finished_at": null,
   "stats": {},
   "heartbeat": {"counters": {}},

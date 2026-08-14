@@ -6,7 +6,6 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .auth import AuthClient, AuthError, AuthRequired
@@ -15,7 +14,6 @@ from .config import ConfigurationError, SupabaseConfig, load_config
 
 MAX_ATTEMPTS = 8
 MAX_REQUEST_BYTES = 400_000
-BEIJING = timezone(timedelta(hours=8))
 
 
 class UploadHttpError(RuntimeError):
@@ -23,15 +21,6 @@ class UploadHttpError(RuntimeError):
         super().__init__(str(payload.get("error") or payload.get("message") or f"HTTP {status}"))
         self.status = status
         self.payload = payload
-
-
-def _beijing_timestamp(value: str | None) -> str | None:
-    if not value:
-        return None
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=BEIJING)
-    return parsed.astimezone(BEIJING).isoformat(timespec="seconds")
 
 
 def retry_delay(attempt: int, random_value: float | None = None) -> float:
@@ -104,8 +93,8 @@ def _batch_body(
             "target_count": session["target_count"],
             "count_mode": session["count_mode"],
         },
-        "started_at": _beijing_timestamp(session["started_at"]),
-        "finished_at": _beijing_timestamp(session["finished_at"]),
+        "started_at": session["started_at"],
+        "finished_at": session["finished_at"],
         "stats": {
             "observed": int(totals["observed"]),
             "relevant": int(totals["relevant"]),

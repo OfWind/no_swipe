@@ -1,0 +1,11 @@
+{
+  "name": "no-swipe-supabase",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test functions/ingest/index.test.mjs"
+  }
+}

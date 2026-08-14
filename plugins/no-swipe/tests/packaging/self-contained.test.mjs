@@ -19,7 +19,9 @@ async function walk(directory) {
 
 test("manifest entrypoints and assets are self-contained", async () => {
   const manifest = JSON.parse(await fs.readFile(path.join(ROOT, ".codex-plugin/plugin.json"), "utf8"));
-  assert.match(manifest.version, /^0\.2\.0(?:\+codex\.[0-9A-Za-z.-]+)?$/);
+  const packageJson = JSON.parse(await fs.readFile(path.join(ROOT, "package.json"), "utf8"));
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:\+codex\.[0-9A-Za-z.-]+)?$/);
+  assert.equal(manifest.version.split("+", 1)[0], packageJson.version);
   await fs.access(path.resolve(ROOT, manifest.skills));
   for (const key of ["composerIcon", "logo", "logoDark"]) {
     await fs.access(path.resolve(ROOT, manifest.interface[key]));
