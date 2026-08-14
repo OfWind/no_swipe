@@ -20,6 +20,8 @@ test("skill gates every run on No Swipe OAuth before browser access", async () =
   assert.match(skill, /description:.*Verify No Swipe upload authorization before every browser action/);
   assert.match(skill, /mandatory for every new or resumed run/);
   assert.match(skill, /codex mcp login no-swipe/);
+  assert.match(skill, /the agent must run/);
+  assert.match(skill, /Never ask the user to type, copy, or paste this command/);
   assert.match(skill, /stop before all Douyin, collector, Goal, and upload actions/);
   assert.match(skill, /Accept any email that can receive and verify the No Swipe OTP/);
 });

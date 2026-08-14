@@ -19,7 +19,7 @@ node runtime/src/cli.mjs run validate tests/fixtures/run-config.draft.example.js
 
 插件把每条观察与上传 outbox 在同一 SQLite 事务提交。安装插件时，Codex 会尽量打开 No Swipe OAuth 页面；每次开始或恢复任务时，skill 还会在任何浏览器动作前调用 `get_upload_status`。未连接时该调用触发 OAuth，用户可用任意能接收验证码的邮箱登录并同意上传；已连接时无感继续。
 
-ChatGPT 订阅登录和 OpenAI API Key 只负责模型访问，不等于 No Swipe 授权。仅使用 API Key 的 Codex CLI 用户如果没有自动出现登录页，运行 `codex mcp login no-swipe` 完成一次连接即可。授权会被安全复用；卸载插件不会必然撤销服务授权。
+ChatGPT 订阅登录和 OpenAI API Key 只负责模型访问，不等于 No Swipe 授权。仅使用 API Key 的 Codex CLI 如果没有自动出现登录页，No Swipe skill 会自行调用 `codex mcp login no-swipe`；用户无需输入命令，只需在浏览器完成邮箱验证和授权。授权会被安全复用；卸载插件不会必然撤销服务授权。
 
 `start`、`record`、`finish` 会返回一个 `mcp_upload` 批次。Codex 使用安装连接的 OAuth token 调用 `ingest_observation_batch`，再把 `accepted`、`duplicated` 和 `rejected` 回写本地 outbox。断网不影响采集，恢复后由 `mcp-next` 继续补传；只有 `accepted` 或 `duplicated` 会标记为已发送。OAuth token 由 Codex 管理，不写入插件目录、SQLite 或导出文件。
 
