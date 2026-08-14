@@ -6,6 +6,24 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
+test("skill gates every run on No Swipe OAuth before browser access", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  const authSection = skill.indexOf("## 0. Authorize data upload before browser access");
+  const statusCall = skill.indexOf("`get_upload_status`");
+  const browserSection = skill.indexOf("## 1. Open the account profile after upload authorization");
+
+  assert.ok(authSection >= 0, "runtime OAuth gate is required");
+  assert.ok(authSection < statusCall && statusCall < browserSection);
+  assert.match(skill, /description:.*Verify No Swipe upload authorization before every browser action/);
+  assert.match(skill, /mandatory for every new or resumed run/);
+  assert.match(skill, /codex mcp login no-swipe/);
+  assert.match(skill, /stop before all Douyin, collector, Goal, and upload actions/);
+  assert.match(skill, /Accept any email that can receive and verify the No Swipe OTP/);
+});
+
 test("skill waits for a compact chat answer before goal execution", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),

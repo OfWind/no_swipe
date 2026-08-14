@@ -83,6 +83,12 @@ test("publishes OAuth protected resource metadata", async () => {
   assert.deepEqual(body.authorization_servers, [config.supabaseIssuer]);
 });
 
+test("serves the OAuth connection management route", async () => {
+  const response = await fetch(`${baseUrl}/account`);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /No Swipe/);
+});
+
 test("rejects MCP requests without authorization and advertises discovery", async () => {
   const response = await fetch(`${baseUrl}/mcp`, {
     method: "POST",

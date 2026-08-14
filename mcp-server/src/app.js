@@ -30,7 +30,7 @@ export function createApp({ config, tokenVerifier, ingestClient }) {
     extensions: ["html"],
     maxAge: "1h",
   }));
-  for (const path of ["/", "/login", "/oauth/consent", "/privacy", "/terms"]) {
+  for (const path of ["/", "/login", "/oauth/consent", "/account", "/privacy", "/terms"]) {
     app.get(path, (_req, res) => res.sendFile(new URL("../public/index.html", import.meta.url).pathname));
   }
 

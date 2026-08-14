@@ -139,6 +139,52 @@ async function renderConsent(supabase) {
   root.querySelector("#deny").addEventListener("click", () => decide(false));
 }
 
+async function renderAccount(supabase) {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!userData?.user) return renderLogin(supabase, "/account");
+
+  const { data: grants, error: grantsError } = await supabase.auth.oauth.listGrants();
+  if (grantsError) throw grantsError;
+  const rows = (grants || []).map((grant) => `
+    <li data-client-id="${escapeHtml(grant.client.id)}">
+      <strong>${escapeHtml(grant.client.name || "Codex / ChatGPT")}</strong>
+      <span class="muted">权限：${grant.scopes.map(escapeHtml).join(" · ") || "email"}</span>
+      <button class="secondary" data-revoke="${escapeHtml(grant.client.id)}">撤销此连接</button>
+    </li>
+  `).join("");
+
+  shell(`
+    <h1>No Swipe 连接管理</h1>
+    <p class="muted">已登录：${escapeHtml(userData.user.email || userData.user.id)}</p>
+    ${rows
+      ? `<ul class="permissions grant-list">${rows}</ul>`
+      : `<p class="success">当前没有已授权的 Codex 或 ChatGPT 连接。</p>`}
+    <p class="muted">撤销后，该客户端的 OAuth grant 和 refresh token 会失效；已签发的短效 access token 最迟在到期时停止工作。再次连接必须重新授权。</p>
+    <p><a href="/">返回 No Swipe</a></p>
+  `);
+
+  root.querySelectorAll("[data-revoke]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const clientId = button.dataset.revoke;
+      if (button.dataset.confirmed !== "true") {
+        button.dataset.confirmed = "true";
+        button.textContent = "再次点击确认撤销";
+        button.classList.remove("secondary");
+        return;
+      }
+      button.disabled = true;
+      const { error } = await supabase.auth.oauth.revokeGrant({ clientId });
+      if (error) {
+        button.disabled = false;
+        return message(error.message);
+      }
+      await renderAccount(supabase);
+      message("连接已撤销。", "success");
+    });
+  });
+}
+
 async function main() {
   if (location.pathname === "/privacy") return renderLegal("privacy");
   if (location.pathname === "/terms") return renderLegal("terms");
@@ -148,10 +194,12 @@ async function main() {
   });
   if (location.pathname === "/oauth/consent") return renderConsent(supabase);
   if (location.pathname === "/login") return renderLogin(supabase, params.get("redirect"));
+  if (location.pathname === "/account") return renderAccount(supabase);
   shell(`
     <h1>No Swipe 数据连接</h1>
     <p>该服务为 No Swipe Codex 插件提供 OAuth 授权和推荐流观察数据上传。</p>
     <p class="muted">请从 Codex 的插件安装流程开始连接。</p>
+    <p><a href="/account">管理或撤销连接</a></p>
   `);
 }
 

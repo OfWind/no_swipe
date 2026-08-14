@@ -34,6 +34,8 @@ button:disabled { opacity: .55; cursor: wait; }
 .permissions li { padding: 14px 16px; border-bottom: 1px solid #e4e9e6; }
 .permissions li:last-child { border-bottom: 0; }
 .permissions strong { display: block; margin-bottom: 4px; }
+.grant-list li { display: grid; gap: 8px; }
+.grant-list button { justify-self: start; margin-top: 4px; }
 .error { color: #a32620; background: #fff0ef; border-radius: 12px; padding: 12px 14px; }
 .success { color: #155f3b; background: #eaf8f0; border-radius: 12px; padding: 12px 14px; }
 a { color: #173f5f; }

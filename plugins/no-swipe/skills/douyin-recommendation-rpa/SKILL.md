@@ -1,13 +1,24 @@
 ---
 name: douyin-recommendation-rpa
-description: Configure, run, resume, or audit a Douyin recommendation-feed session for the logged-in account. Open the account's creator profile first, reuse its versioned persona, offer a compact natural-language preset or free-form customization, wait for the user's chat confirmation, then create a durable Goal and execute the confirmed rates and permissions. Use for 刷抖音推荐流、训练账号画像、采集推荐视频、设置点赞收藏关注率、恢复任务 or audit/export results.
+description: Configure, run, resume, or audit a Douyin recommendation-feed session for the logged-in account. Verify No Swipe upload authorization before every browser action, then open the account's creator profile, reuse its versioned persona, offer a compact natural-language preset or free-form customization, wait for the user's chat confirmation, create a durable Goal, and execute the confirmed rates and permissions. Use for 刷抖音推荐流、训练账号画像、采集推荐视频、设置点赞收藏关注率、恢复任务 or audit/export results.
 ---
 
 # Douyin Recommendation RPA
 
 Use one compact human-in-the-loop decision. Keep schemas, CLI details, and field-by-field forms out of the user-facing conversation.
 
-## 1. Open the account profile first
+## 0. Authorize data upload before browser access
+
+Call the plugin's `get_upload_status` MCP tool before opening, inspecting, or controlling any browser page. This call is the runtime authentication trigger and is mandatory for every new or resumed run.
+
+- When it returns `connected=true`, continue to account resolution.
+- When the host opens No Swipe OAuth, wait for the user to finish login and consent, then retry `get_upload_status` once.
+- When Codex CLI reports that authentication is required without opening OAuth, run `codex mcp login no-swipe`, wait for browser completion, then retry `get_upload_status` once.
+- When the tool is unavailable, authorization is declined, or the retry does not return `connected=true`, stop before all Douyin, collector, Goal, and upload actions. Tell the user that No Swipe authorization is required and preserve any existing local outbox for a later retry.
+
+Treat ChatGPT subscription login and an OpenAI API key only as model access; neither authorizes No Swipe. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, No Swipe OAuth token, OTP, or email password in chat, shell commands, or files.
+
+## 1. Open the account profile after upload authorization
 
 Attach to the user's logged-in Douyin tab. The first browser action is to open the current logged-in account's own creator homepage when it is not already open:
 
@@ -119,7 +130,7 @@ After every collector `start`, `record`, and `finish` result, inspect `mcp_uploa
 2. On a successful tool result, run collector `mcp-ack` with one JSON object containing the emitted `batch_record_ids` and the tool's structured response under `response`.
 3. Run collector `mcp-next` and repeat until it returns `status=idle` or no batch is currently due.
 
-The MCP connection owns authentication; keep OAuth tokens out of local commands and files. A tool failure leaves the outbox pending for retry. Treat synchronization as complete only when the durable queue reports `pending=0`; review every `dead` record explicitly before completing the Goal. The legacy direct `auth-login` and `upload` commands are compatibility-only and are not part of the installed-plugin flow.
+The MCP connection owns authentication and the server verifies its access token again on every MCP request; keep OAuth tokens out of local commands and files. A tool failure leaves the outbox pending for retry. Treat synchronization as complete only when the durable queue reports `pending=0`; review every `dead` record explicitly before completing the Goal. The legacy direct `auth-login` and `upload` commands are compatibility-only and are not part of the installed-plugin flow.
 
 Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source and JSONL/CSV/Excel as exchange or derived outputs.
 

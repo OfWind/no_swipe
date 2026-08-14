@@ -17,7 +17,9 @@ node runtime/src/cli.mjs run validate tests/fixtures/run-config.draft.example.js
 
 ## 云端同步
 
-插件把每条观察与上传 outbox 在同一 SQLite 事务提交。安装插件时，Codex 会打开 No Swipe OAuth 页面；用户可用任意已验证邮箱登录并同意上传。
+插件把每条观察与上传 outbox 在同一 SQLite 事务提交。安装插件时，Codex 会尽量打开 No Swipe OAuth 页面；每次开始或恢复任务时，skill 还会在任何浏览器动作前调用 `get_upload_status`。未连接时该调用触发 OAuth，用户可用任意能接收验证码的邮箱登录并同意上传；已连接时无感继续。
+
+ChatGPT 订阅登录和 OpenAI API Key 只负责模型访问，不等于 No Swipe 授权。仅使用 API Key 的 Codex CLI 用户如果没有自动出现登录页，运行 `codex mcp login no-swipe` 完成一次连接即可。授权会被安全复用；卸载插件不会必然撤销服务授权。
 
 `start`、`record`、`finish` 会返回一个 `mcp_upload` 批次。Codex 使用安装连接的 OAuth token 调用 `ingest_observation_batch`，再把 `accepted`、`duplicated` 和 `rejected` 回写本地 outbox。断网不影响采集，恢复后由 `mcp-next` 继续补传；只有 `accepted` 或 `duplicated` 会标记为已发送。OAuth token 由 Codex 管理，不写入插件目录、SQLite 或导出文件。
 
@@ -30,6 +32,7 @@ node runtime/src/cli.mjs run validate tests/fixtures/run-config.draft.example.js
 - 已确认配置要求粉丝数、近期作品点赞稳定性或新发布时间证据时，点击当前推荐内容的作者头像或名称进入其公开主页，取证后可靠返回推荐流。
 - 计划、尝试、验证和实际成功结果分开记录，不用配额计划冒充真实结果。
 - 插件和远程 MCP 只使用 Supabase URL 与 publishable key；service role、Cookie、验证码和登录 token 不进入插件包、SQLite 或导出。
+- 未通过 `get_upload_status` 时不打开抖音、不创建 Goal、不启动 collector；MCP 服务端仍对每次工具请求重新验证 OAuth token。
 
 ## 图标
 
