@@ -42,6 +42,20 @@ test("skill waits for a compact chat answer before goal execution", async () => 
   assert.ok(questionIndex < confirmIndex && confirmIndex < goalIndex && goalIndex < feedIndex);
 });
 
+test("user-visible Goal is Chinese and keeps internal identifiers private", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  const goalStart = skill.indexOf("## 4. Create one durable Goal");
+  const goalEnd = skill.indexOf("## 5. Apply the configured feed rules");
+  const goalSection = skill.slice(goalStart, goalEnd);
+
+  assert.match(goalSection, /为当前已确认的抖音账号/);
+  assert.match(goalSection, /内部运行标识只保存在本地配置和状态文件中/);
+  assert.doesNotMatch(goalSection, /Execute Douyin run|<run_id>|<account_ref>|<config_hash>/);
+});
+
 test("skill defines explicit extend and replace semantics", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),

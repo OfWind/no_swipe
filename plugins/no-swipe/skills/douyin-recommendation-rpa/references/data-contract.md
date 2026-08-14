@@ -139,7 +139,7 @@ SQLite 是本地事实源；每条观察与对应 outbox 项在同一事务提�
   "contract_version": 2,
   "session_id": "客户端会话 UUID",
   "client": {
-    "plugin_version": "0.2.0",
+    "plugin_version": "0.2.1",
     "host_fingerprint": "不可逆短哈希"
   },
   "task_config": {},

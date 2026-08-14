@@ -91,11 +91,17 @@ The preset intentionally sets all action permissions to `true`. Rates and caps s
 
 ## 4. Create one durable Goal
 
-After confirmation and validation, inspect the active Goal. Continue a compatible Goal for the same `run_id`; otherwise call `create_goal` exactly once. The user's chat answer above is the explicit request that authorizes Goal creation. Use an objective with the confirmed values, for example:
+After confirmation and validation, inspect the active Goal and the current confirmed RunConfig. Continue the active Goal only when the persisted runtime state matches that config internally by `run_id`, `account_ref`, and `config_hash`; otherwise call `create_goal` exactly once. The user's chat answer above is the explicit request that authorizes Goal creation.
+
+内部运行标识只保存在本地配置和状态文件中。Write the user-visible Goal objective and every Goal status update in natural Chinese business language. Include the confirmed count mode, target count, persistence requirement, completion validation, and safety stops while keeping UUIDs, `run_id`, `account_ref`, `profile_id`, `config_hash`, hashes, and filesystem paths out of user-visible text.
+
+For an observation-count target, use an objective in this form:
 
 ```text
-Execute Douyin run <run_id> for <account_ref> under config <config_hash>. Continue until <observed_target or relevant_target> is durably recorded and validated. Persist every observation before advancing; stop on account mismatch, CAPTCHA, access limits, unreliable page state, or an unrecoverable failure to return from a creator profile.
+为当前已确认的抖音账号执行推荐流采集，持续完成并验证 <目标数> 条推荐内容观察。每条观察须先持久化再继续，任务完成前确认全部数据已上传并通过完整性校验；如遇账号不一致、验证码、访问限制、页面状态不可靠，或无法安全返回推荐流，立即停止并保留恢复进度。
 ```
+
+For a relevant-content target, replace `完成并验证 <目标数> 条推荐内容观察` with `识别并验证 <目标数> 条符合画像的推荐内容`.
 
 Do not ask the user to type `/goal`. If Goal tools are unavailable, do not claim durable execution and do not start the feed. Mark the Goal complete only after the persisted target and integrity checks pass; preserve it for recovery while an in-scope retry remains possible.
 

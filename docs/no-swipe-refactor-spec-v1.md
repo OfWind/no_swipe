@@ -141,7 +141,7 @@ resolving_account
 - 在 `waiting_for_confirmation` 展示中文摘要：账号、画像名称与 revision、目标、各比例、分母、动作上限、授权范围和停止条件。
 - `waiting_for_confirmation` 必须以待返回的原生 `request_user_input` 工具调用呈现；工具返回值是进入 `confirmed` 的唯一交互证据。
 - 用户明确确认后写入 `confirmed_at`、`confirmed_by` 与 `config_hash`，随后为同一 `run_id` 创建或复用唯一 Goal。
-- Goal 目标必须包含 `account_ref`、`run_id`、`config_hash`、计数口径、目标数、持久化完成条件和安全停止条件；达到已落盘目标并通过完整性校验后才完成。
+- Goal 的用户可见目标必须使用中文业务描述，只展示计数口径、目标数、持久化完成条件和安全停止条件；`account_ref`、`run_id`、`profile_id`、`config_hash`、哈希及文件路径只保存在本地配置和状态文件中，用于内部匹配与恢复，不进入 Goal 文案。达到已落盘目标、确认全部上传并通过完整性校验后才完成。
 - 执行器只接受 `status=confirmed` 且哈希匹配的配置。
 - 配置发生任何实质变化后，状态回到 `waiting_for_confirmation`。
 - 画像 revision 在运行准备期间发生变化时，必须重新生成快照和配置哈希；不要求用户重复描述画像。
