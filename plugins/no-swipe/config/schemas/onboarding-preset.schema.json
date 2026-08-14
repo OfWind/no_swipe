@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://no-swipe.local/schemas/onboarding-preset.schema.json",
+  "title": "No Swipe Onboarding Preset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "preset_id", "display_name", "user_facing_copy", "confirmation_notice", "profile", "run_defaults"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "preset_id": {"type": "string", "minLength": 1},
+    "display_name": {"type": "string", "minLength": 1},
+    "user_facing_copy": {"type": "string", "minLength": 1},
+    "confirmation_notice": {"type": "string", "minLength": 1},
+    "profile": {
+      "type": "object",
+      "required": ["name", "selection_mode", "audience", "positive_topics", "negative_topics", "excluded_creator_types", "boundary_guidance", "content_rules", "creator_rules"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "selection_mode": {"enum": ["include", "exclude_only"]},
+        "audience": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "positive_topics": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "high_priority_topics": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "negative_topics": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "excluded_creator_types": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "boundary_guidance": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "content_rules": {"type": "object"},
+        "creator_rules": {"type": "object"},
+        "classification": {"type": "object"}
+      }
+    },
+    "run_defaults": {
+      "type": "object",
+      "required": ["goal", "interaction_policy", "authorization", "versions"],
+      "properties": {
+        "goal": {"type": "object"},
+        "interaction_policy": {"type": "object"},
+        "authorization": {"type": "object"},
+        "versions": {"type": "object"}
+      }
+    }
+  }
+}

@@ -1,146 +1,126 @@
 ---
 name: douyin-recommendation-rpa
-description: Prepare, run, resume, or audit a Douyin recommendation-feed session for the currently logged-in account. Reuse one versioned interest profile per Douyin account, ask for explicit per-run targets and interaction rates, seal a confirmed RunConfig, execute only authorized actions, and persist auditable observations. Use when the user asks to 刷抖音推荐流、训练或检查账号画像、采集推荐视频、设置点赞收藏评论关注率、恢复推荐流任务、审计 RPA 结果，or export the resulting dataset.
+description: Configure, run, resume, or audit a Douyin recommendation-feed session for the logged-in account. Open the account's creator profile first, reuse its versioned persona, offer a compact natural-language preset or free-form customization, wait for the user's chat confirmation, then create a durable Goal and execute the confirmed rates and permissions. Use for 刷抖音推荐流、训练账号画像、采集推荐视频、设置点赞收藏关注率、恢复任务 or audit/export results.
 ---
 
 # Douyin Recommendation RPA
 
-Treat the logged-in Douyin account, its interest profile, and a run as three different objects:
+Use one compact human-in-the-loop decision. Keep schemas, CLI details, and field-by-field forms out of the user-facing conversation.
 
-- One Douyin account has one current logical `AccountProfile`.
-- Updating that profile creates a new revision; never rewrite the revision used by an old run.
-- Every run embeds an immutable profile snapshot and separately records that run's goals, rates, limits, and authorizations.
+## 1. Open the account profile first
 
-Do not assume any built-in topic persona. Examples such as 3C, technology, or AI are test data, not defaults.
+Attach to the user's logged-in Douyin tab. The first browser action is to open the current logged-in account's own creator homepage when it is not already open:
 
-## 1. Bind or reuse the account profile
+1. Use the visible account/avatar/profile entry; do not guess a private URL.
+2. Read the visible nickname and Douyin ID from that homepage.
+3. Build `account_ref` from the visible Douyin ID and resolve `.no-swipe/accounts/`.
+4. Stay on the homepage until account resolution and preset confirmation finish.
 
-Identify the active logged-in account using visible, non-secret account information. Use a stable `account_ref`; never store cookies, tokens, authorization headers, or browser session material.
+Stop before feed actions when identity is unreliable, the resolved account differs from the visible account, or a verification/access-limit page appears.
 
-Look for the workspace-local account profile under `.no-swipe/accounts/`. The exact directory name may be a safe hash or stable alias of `account_ref`.
+One Douyin account has one logical `AccountProfile`. Reuse its current revision without asking the persona again. A user-requested persona change creates the next revision under the same `profile_id`.
 
-- If a matching active profile exists, load it and tell the user which profile name and revision will be reused. Do not ask the profile questions again.
-- If the account is unbound, ask once for the intended account persona: positive topics, high-priority topics if any, exclusions, and boundary guidance. Create revision 1 only after the user confirms the summary.
-- If the user explicitly asks to change the persona, create revision N+1 and keep prior revisions.
-- If the visible account does not match the selected `account_ref`, stop before any page action.
+## 2. Ask for one compact confirmation
 
-Resolve the current revision without asking the profile questions again:
+Read `../../config/presets/douyin-youth-white-collar.v1.json`. Show only:
+
+- its `display_name`;
+- its single-paragraph `user_facing_copy`;
+- its single-sentence `confirmation_notice`.
+
+End the current turn with this one compact chat question:
+
+> 请回复“使用预设并开始”，或直接写修改要求；回复“先不启动”则保持账号画像、运行配置和推荐流不变。
+
+Keep the browser on the account homepage and perform no feed action while waiting. Treat the next user message as the answer and resume preparation from it.
+
+Free-form text is the customization path:
+
+- Clear partial edits such as `使用预设，300条` use `extend`: retain unmentioned values and change the stated fields without another question.
+- `补充`、`沿用`、`保留` mean `extend` for the named profile or run fields.
+- `完全修改`、`完全替换`、`不要原预设` mean `replace` for the named scope. Build that profile or run scope from a neutral complete object; copy no value from the preset into the replaced scope.
+- Ask one additional focused chat question only when the difference between `extend` and `replace`, or another ambiguity, would materially change an external action. Wait for that answer before continuing.
+
+`使用预设并开始` is explicit confirmation to bind the profile, confirm the run, create a durable Goal, and execute. `先不启动` ends without binding, confirming, creating a Goal, or operating the feed.
+
+For an already-bound account, replace the onboarding copy with one line naming the reused profile and revision, then ask for `沿用并开始`、修改要求或`先不启动`. Free-form text creates a profile revision only for durable persona changes; target and interaction edits remain run-scoped.
+
+## 3. Materialize and seal the decision
+
+Materialize deterministic files from the returned tool result. For an unchanged first-time preset:
 
 ```bash
-node ../../runtime/src/cli.mjs profile resolve <account-ref> --data-dir .no-swipe
+node ../../runtime/src/cli.mjs preset materialize ../../config/presets/douyin-youth-white-collar.v1.json \
+  --account-ref <account-ref> --profile-id <profile-id> --run-id <run-id> \
+  --output-dir .no-swipe/drafts/<run-id>
 ```
 
-For a first binding or explicit revision update, validate the JSON and then use exactly one of:
+Bind revision 1 only after the structured confirmation. For an existing account, embed its current profile snapshot and apply the confirmed run overrides without replacing the profile.
+
+For free-form input, select `profile-mode` and `run-mode` independently:
 
 ```bash
-node ../../runtime/src/cli.mjs profile bind <account-profile.json> --data-dir .no-swipe
-node ../../runtime/src/cli.mjs profile update <account-profile.json> --data-dir .no-swipe
+node ../../runtime/src/cli.mjs preset materialize ../../config/presets/douyin-youth-white-collar.v1.json \
+  --account-ref <account-ref> --profile-id <profile-id> --run-id <run-id> \
+  --profile-mode <preset|extend|replace> [--profile-input <profile-input.json>] \
+  --run-mode <preset|extend|replace> [--run-input <run-input.json>] \
+  --output-dir .no-swipe/drafts/<run-id>
 ```
 
-`bind` rejects an already-bound account. `update` requires the same `profile_id` and exactly the next revision, so a new run cannot accidentally create a second persona for one account.
+`replace` requires a complete input object for that scope and never merges the preset into it. `extend` performs a field override; arrays replace arrays rather than concatenate implicitly.
 
-Validate an account profile with:
-
-```bash
-node ../../runtime/src/cli.mjs profile validate <account-profile.json>
-```
-
-Use `../../config/schemas/account-profile.schema.json` as the durable contract. Generate the immutable run snapshot with:
-
-```bash
-node ../../runtime/src/cli.mjs profile snapshot <account-profile.json>
-```
-
-## 2. Prepare every run
-
-Ask for the following run-scoped decisions even when the profile is reused:
-
-1. Stop target: observed item count, and optional relevant-item target. Keep the two denominators distinct.
-2. Explicit rates for each requested relevance tier: like, favorite, like-and-favorite overlap, comment, and completion.
-3. Follow rate and total cap; not-interested rate and total cap; optional profile-sampling rate and total cap.
-4. Explicit authorization for every state-changing action: like, favorite, comment, follow, not-interested, and profile visit.
-5. For a positive comment rate: total cap, per-run or per-item approval mode, and comment guidance. Comment text must be created from the current item and the user's guidance; there is no built-in fixed copy.
-
-Missing is not zero. Never silently replace an unanswered rate with `0`. If the user asks for a read-only run, record explicit zeros and all authorizations as `false`.
-
-Check these semantic constraints before confirmation:
-
-- All rates are between 0 and 1.
-- `like_favorite_overlap_rate <= min(like_rate, favorite_rate)`.
-- `like_rate + favorite_rate - like_favorite_overlap_rate <= 1`.
-- Every positive state-changing rate has matching authorization `true`.
-- Positive comment, follow, not-interested, or profile-visit rates have a positive total cap.
-- Contract 1.0.0 only assigns comments, completion, and follow candidates to high-relevance content.
-
-Write a draft `RunConfig` using `../../config/schemas/run-config.schema.json`, validate it, and present a compact confirmation summary containing:
-
-- account and profile revision;
-- observed/relevant targets;
-- each eligibility denominator and rate;
-- overlap semantics;
-- each total cap;
-- every authorized action;
-- adapter, classifier, policy, and contract versions.
-
-Do not start browsing from `draft` or `waiting_for_confirmation`. After the user explicitly confirms that exact summary, seal the config:
+Seal the exact run config immediately after the human-in-the-loop answer:
 
 ```bash
 node ../../runtime/src/cli.mjs run confirm <draft.json> --confirmed-by user --output <confirmed.json>
 node ../../runtime/src/cli.mjs run validate <confirmed.json> --require-confirmed
 ```
 
-Any edit after confirmation invalidates `config_hash` and requires a new confirmation.
+The preset intentionally sets all action permissions to `true`. Rates and caps still control execution. In particular, comment permission is enabled while comment rate and cap are `0`, so no comment is posted. Any later configuration edit invalidates `config_hash` and returns to the compact chat confirmation.
 
-## 3. Run safely
+## 4. Create one durable Goal
 
-Use the browser skill only with the user's already-open, logged-in tab. Do not ask for credentials. Do not bypass CAPTCHA, verification, rate limits, login gates, or access restrictions.
+After confirmation and validation, inspect the active Goal. Continue a compatible Goal for the same `run_id`; otherwise call `create_goal` exactly once. The user's chat answer above is the explicit request that authorizes Goal creation. Use an objective with the confirmed values, for example:
 
-The browser module entry is:
-
-```javascript
-import { createDouyinRunner } from "./scripts/douyin_browser_runner.mjs";
+```text
+Execute Douyin run <run_id> for <account_ref> under config <config_hash>. Continue until <observed_target or relevant_target> is durably recorded and validated. Persist every observation before advancing; stop on account mismatch, CAPTCHA, access limits, unreliable page state, or an unrecoverable failure to return from a creator profile.
 ```
 
-Create it with the confirmed `runConfig`, verified `activeAccountRef`, output paths, and—only when comments are enabled—a contextual `createCommentText` callback. Per-item comment approval also requires an `approveComment` callback. Legacy `createTest5Runner`, `createTest6Runner`, and `createTest7Runner` are compatibility aliases and must receive the same confirmed configuration; their names grant no permission and change no rate.
+Do not ask the user to type `/goal`. If Goal tools are unavailable, do not claim durable execution and do not start the feed. Mark the Goal complete only after the persisted target and integrity checks pass; preserve it for recovery while an in-scope retry remains possible.
 
-At runtime:
+## 5. Apply the configured feed rules
 
-- Validate `status=confirmed` and `config_hash` before touching the page.
-- Stop on account mismatch before any action.
-- Classify only from the embedded profile snapshot; never add product-topic defaults.
-- Separate planned, attempted, verified, and actual action fields.
-- Enforce authorization and total caps even when a quota candidate is assigned.
-- Mark profile navigation accurately.
-- Stop immediately when the page is unreliable, verification appears, account state changes, or the next card cannot be verified. A stopped or failed item must not consume a future quota position.
+Return to the recommendation feed only after confirmation. Follow the versioned profile snapshot:
 
-The human-readable browser selectors, visible UI copy, dwell parameters, and stop signals live in `../../config/platforms/douyin.v1.json`. Product goals, topic personas, permissions, and user secrets do not belong there.
+- Negative lane or excluded creator type: click not interested only when the classification is reliable.
+- Other lanes: treat as watchable without requiring a positive keyword hit.
+- Visible likes below the configured threshold: swipe directly unless visible feed time or the creator's work list confirms the video is newly published.
+- High relevance: open that video's creator homepage when follower count or recent-like stability evidence is missing. Require the configured follower range and a relatively stable recent-like pattern before high-tier like, favorite, or follow allocation.
+- Evidence missing or ambiguous: keep observing; do not infer high relevance or click not interested.
 
-## 4. Persist and resume
+Profile inspection is evidence collection, not a quota action. Return to the same feed item or a reliably identified next item before continuing.
 
-SQLite is the local fact source; JSONL/CSV are exchange or mirror formats. Persist every observation before moving on, and use the confirmed `run_id`, `account_ref`, `config_hash`, profile revision/hash, and feed sequence in records.
+Use `createDouyinRunner()` from `scripts/douyin_browser_runner.mjs` with the confirmed `runConfig`, verified `activeAccountRef`, and a `resolveProfileEvidence` callback. While the author homepage is visible, that callback must return visible `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` evidence; use `null` rather than guessing. Legacy Test5/6/7 names carry no behavior or permission.
 
-The current collector commands remain:
+Runtime gates remain mandatory:
 
-```bash
-python3 scripts/douyin_rpa_collector.py start --db <db> --output-dir <dir> --session-name <name> --goal <count> --interest-profile <profile-name>
-python3 scripts/douyin_rpa_collector.py record --db <db> --output-dir <dir> --payload '<json>'
-python3 scripts/douyin_rpa_collector.py status --db <db> --output-dir <dir>
-python3 scripts/douyin_rpa_collector.py finish --db <db> --output-dir <dir>
-```
+- validate `status=confirmed` and `config_hash` before feed actions;
+- enforce rates, caps, and permissions together;
+- record planned, attempted, verified, and actual separately;
+- stop on account mismatch, CAPTCHA, rate limits, login gates, unreliable DOM, or failed feed transition.
 
-Until the collector is migrated to explicit `run_id` routing and idempotency constraints, do not run multiple active sessions against one database. After interruption, resume only when the saved quota state's `runConfigHash` matches the confirmed config.
+## 6. Persist and audit
 
-## 5. Audit and export
+Persist each observation with `run_id`, `account_ref`, `config_hash`, profile revision/hash, and feed sequence before moving on. Resume only when the saved state's config hash matches.
 
-Read [references/data-contract.md](references/data-contract.md) before changing observation semantics, and [references/quota-policy.md](references/quota-policy.md) before changing allocation behavior.
+After every collector `start`, `record`, and `finish` result, inspect `mcp_upload`:
 
-Reports must distinguish observed, relevant, planned, attempted, verified, and actual. Never infer missing values. Blank means not observed; `false` means explicitly observed false; `0` means an observed numeric zero.
+1. When `status=ready`, call the plugin's `ingest_observation_batch` MCP tool with `mcp_upload.arguments` exactly.
+2. On a successful tool result, run collector `mcp-ack` with one JSON object containing the emitted `batch_record_ids` and the tool's structured response under `response`.
+3. Run collector `mcp-next` and repeat until it returns `status=idle` or no batch is currently due.
 
-For spreadsheet delivery, preserve at least:
+The MCP connection owns authentication; keep OAuth tokens out of local commands and files. A tool failure leaves the outbox pending for retry. Treat synchronization as complete only when the durable queue reports `pending=0`; review every `dead` record explicitly before completing the Goal. The legacy direct `auth-login` and `upload` commands are compatibility-only and are not part of the installed-plugin flow.
 
-- session summary;
-- real per-batch detail;
-- relevant-item records;
-- field definitions and version metadata.
+Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source and JSONL/CSV/Excel as exchange or derived outputs.
 
-Do not bundle runtime data, account profiles, cookies, credentials, SQLite files, JSONL queues, CSV exports, or workbooks in the plugin package.
+Never store or export cookies, tokens, authorization headers, credentials, or reusable browser-session material.

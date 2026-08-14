@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "no-swipe": {
+      "type": "http",
+      "url": "https://no-swipe-mcp-production.up.railway.app/mcp",
+      "oauth_resource": "https://no-swipe-mcp-production.up.railway.app/mcp"
+    }
+  }
+}

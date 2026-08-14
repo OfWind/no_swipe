@@ -16,10 +16,40 @@
     "account_ref": {"type": "string", "minLength": 1},
     "revision": {"type": "integer", "minimum": 1},
     "name": {"type": "string", "minLength": 1},
-    "positive_topics": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "selection_mode": {"enum": ["include", "exclude_only"]},
+    "audience": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "positive_topics": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "high_priority_topics": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "negative_topics": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "excluded_creator_types": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "boundary_guidance": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "content_rules": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum_like_count", "below_minimum_behavior", "recent_evidence_sources", "recent_definition"],
+      "properties": {
+        "minimum_like_count": {"type": "integer", "minimum": 0},
+        "below_minimum_behavior": {"enum": ["skip", "skip_unless_recent"]},
+        "recent_evidence_sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["feed_published_at", "creator_profile_video_list"]}},
+        "recent_definition": {"type": "string", "minLength": 1}
+      }
+    },
+    "creator_rules": {
+      "type": "object", "additionalProperties": false,
+      "required": ["high_relevance"],
+      "properties": {
+        "high_relevance": {
+          "type": "object", "additionalProperties": false,
+          "required": ["follower_count_min", "follower_count_max", "require_stable_recent_likes", "stability_definition", "evidence_source"],
+          "properties": {
+            "follower_count_min": {"type": "integer", "minimum": 0},
+            "follower_count_max": {"type": "integer", "minimum": 0},
+            "require_stable_recent_likes": {"type": "boolean"},
+            "stability_definition": {"type": "string", "minLength": 1},
+            "evidence_source": {"const": "creator_profile"}
+          }
+        }
+      }
+    },
     "classification": {
       "type": "object",
       "additionalProperties": false,
@@ -28,5 +58,12 @@
     },
     "created_at": {"type": "string", "format": "date-time"},
     "updated_at": {"type": "string", "format": "date-time"}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"selection_mode": {"const": "exclude_only"}}, "required": ["selection_mode"]},
+      "then": {"properties": {"negative_topics": {"minItems": 1}}},
+      "else": {"properties": {"positive_topics": {"minItems": 1}}}
+    }
+  ]
 }

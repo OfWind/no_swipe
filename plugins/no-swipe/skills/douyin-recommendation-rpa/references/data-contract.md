@@ -6,13 +6,15 @@
 
 ```json
 {
+  "contract_version": 2,
+  "record_id": "018f...",
   "run_id": "run-001",
   "account_ref": "douyin:local:account-a",
   "config_hash": "sha256:...",
   "profile_id": "profile-a",
   "profile_revision": 2,
   "profile_hash": "sha256:...",
-  "observed_at": "2026-08-07T08:29:23+00:00",
+  "observed_at": "2026-08-07T16:29:23+08:00",
   "feed_index": 1,
   "is_relevant": true,
   "decision": "keep",
@@ -69,6 +71,8 @@
 }
 ```
 
+`contract_version` 固定为 `2`。`record_id` 由客户端生成，并与当前用户和会话共同构成服务端幂等键。所有时间戳使用 ISO 8601 北京时间并显式以 `+08:00` 结尾；不发送裸本地时间或 `Z` 时间。
+
 `quota_decision.plannedActions` 只表示实验计划。点赞、收藏、评论、关注、不感兴趣和完播的实际结果必须在页面操作或播放器状态得到可靠反馈后，写入对应事实字段或 `user_action_result`。候选不等于已执行；没有对应授权时不得尝试。
 
 ## Excel 中文字段顺序
@@ -123,6 +127,45 @@
 - 0：页面明确展示数值0，或确认动作成功数为0。
 
 不得将这三种语义混用。
+
+## 上传语义
+
+SQLite 是本地事实源；每条观察与对应 outbox 项在同一事务提交。本地完整观察即上传内容，不另做脱敏投影。payload 递归出现 `cookie`、`authorization`、`access_token`、`refresh_token`、`password`、`secret` 等凭据字段时，服务端拒绝该记录。
+
+上传请求最多包含 100 条：
+
+```json
+{
+  "contract_version": 2,
+  "session_id": "客户端会话 UUID",
+  "client": {
+    "plugin_version": "0.2.0",
+    "host_fingerprint": "不可逆短哈希"
+  },
+  "task_config": {},
+  "started_at": "2026-08-07T16:20:00+08:00",
+  "finished_at": null,
+  "stats": {},
+  "heartbeat": {"counters": {}},
+  "records": []
+}
+```
+
+服务端逐条确认：
+
+```json
+{
+  "accepted": ["首次写入的 record_id"],
+  "duplicated": ["服务端已有的 record_id"],
+  "rejected": [{"id": "record_id", "reason": "拒绝原因"}]
+}
+```
+
+- `accepted` 和 `duplicated` 都将本地 outbox 标记为 `sent`。
+- 断网、超时、`429` 和 `5xx` 保留记录并指数退避；达到重试上限进入 `dead`。
+- 契约错误和其他永久 `4xx` 直接进入 `dead`，等待人工检查。
+- 已上传观察不可原地修订；纠错使用新的 correction record，避免本地与服务端事实分叉。
+- 服务端在 `(user_id, session_id, record_id)` 上去重；同一批重放不会增加观察记录。
 
 ## 会话摘要最低指标
 

@@ -9,15 +9,18 @@ import {
   bindAccountProfile,
   confirmRunConfig,
   createProfileSnapshot,
+  materializeOnboardingPreset,
   quotaConfigFromRunConfig,
   resolveAccountProfile,
   updateAccountProfile,
   validateAccountProfile,
+  validateOnboardingPreset,
   validateRunConfig,
 } from "../src/config.mjs";
 import {
   createDouyinRunner,
   restoreRunnerStateFromQueue,
+  selectAuthorProfileHref,
 } from "../../skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -30,6 +33,89 @@ test("account profile produces a stable immutable snapshot", async () => {
   const second = createProfileSnapshot({ ...profile, updated_at: "2026-08-14T00:00:00.000Z" });
   assert.deepEqual(first, second);
   assert.match(first.profile_hash, /^sha256:[a-f0-9]{64}$/);
+});
+
+test("onboarding preset materializes one compact confirmed-ready decision", async () => {
+  const preset = await read("config/presets/douyin-youth-white-collar.v1.json");
+  assert.equal(validateOnboardingPreset(preset), preset);
+  const result = materializeOnboardingPreset(preset, {
+    accountRef: "douyin:82338116099",
+    profileId: "profile-82338116099",
+    runId: "run-preset-test",
+    timestamp: "2026-08-13T08:00:00.000Z",
+  });
+  assert.equal(result.profile.selection_mode, "exclude_only");
+  assert.deepEqual(result.profile.positive_topics, []);
+  assert.equal(result.run_config.interaction_policy.rules[0].like_rate, 0.1);
+  assert.equal(result.run_config.interaction_policy.follow.rate, 0.03);
+  assert.equal(result.run_config.interaction_policy.rules[0].comment_rate, 0);
+  assert.ok(Object.values(result.run_config.authorization).every(Boolean));
+  assert.equal(validateRunConfig(result.run_config), result.run_config);
+});
+
+test("clear partial input extends the preset without concatenating arrays", async () => {
+  const preset = await read("config/presets/douyin-youth-white-collar.v1.json");
+  const result = materializeOnboardingPreset(preset, {
+    accountRef: "douyin:82338116099",
+    profileId: "profile-82338116099",
+    runId: "run-extend-test",
+    timestamp: "2026-08-13T08:00:00.000Z",
+    profileMode: "extend",
+    profileInput: { negative_topics: ["营销号"] },
+    runMode: "extend",
+    runInput: { goal: { observed_target: 300 } },
+  });
+  assert.deepEqual(result.application, { profile_mode: "extend", run_mode: "extend" });
+  assert.deepEqual(result.profile.negative_topics, ["营销号"]);
+  assert.equal(result.run_config.goal.observed_target, 300);
+  assert.equal(result.run_config.interaction_policy.rules[0].like_rate, 0.1);
+});
+
+test("replace mode has zero preset influence in the replaced scope", async () => {
+  const preset = await read("config/presets/douyin-youth-white-collar.v1.json");
+  const replacement = {
+    name: "摄影器材",
+    selection_mode: "include",
+    audience: ["摄影爱好者"],
+    positive_topics: ["相机", "镜头"],
+    high_priority_topics: ["相机评测"],
+    negative_topics: ["婚庆接单"],
+    excluded_creator_types: [],
+    boundary_guidance: ["只看器材和创作方法。"],
+    classification: { high_match_count: 1 },
+  };
+  const result = materializeOnboardingPreset(preset, {
+    accountRef: "douyin:82338116099",
+    profileId: "profile-82338116099",
+    runId: "run-replace-test",
+    timestamp: "2026-08-13T08:00:00.000Z",
+    profileMode: "replace",
+    profileInput: replacement,
+  });
+  assert.deepEqual(result.application, { profile_mode: "replace", run_mode: "preset" });
+  assert.deepEqual(result.profile.negative_topics, ["婚庆接单"]);
+  assert.equal(result.profile.creator_rules, undefined);
+  assert.equal(result.profile.content_rules, undefined);
+  assert.equal(result.run_config.goal.observed_target, 100);
+});
+
+test("replace mode rejects an omitted replacement object", async () => {
+  const preset = await read("config/presets/douyin-youth-white-collar.v1.json");
+  assert.throws(
+    () => materializeOnboardingPreset(preset, {
+      accountRef: "douyin:82338116099",
+      profileId: "profile-82338116099",
+      runId: "run-invalid-replace",
+      profileMode: "replace",
+    }),
+    /profile mode=replace/,
+  );
+});
+
+test("product defaults expose all permissions but still require confirmation", async () => {
+  const defaults = await read("config/defaults/safe-runtime.json");
+  assert.ok(Object.values(defaults.authorization_defaults).every(Boolean));
+  assert.equal(defaults.require_confirmed_config, true);
 });
 
 test("one account reuses one logical profile while revisions remain immutable", async () => {
@@ -138,6 +224,47 @@ test("runner rejects an active account mismatch before browser access", async ()
   await assert.rejects(
     createDouyinRunner({ tab: {}, runConfig: confirmed, activeAccountRef: "douyin:local:other" }),
     /账号.*不一致/,
+  );
+});
+
+test("creator-evidence presets require a homepage evidence resolver", async () => {
+  const preset = await read("config/presets/douyin-youth-white-collar.v1.json");
+  const { run_config: draft } = materializeOnboardingPreset(preset, {
+    accountRef: "douyin:82338116099",
+    profileId: "profile-82338116099",
+    runId: "run-evidence-gate",
+    timestamp: "2026-08-13T08:00:00.000Z",
+  });
+  const confirmed = confirmRunConfig(draft, {
+    confirmedBy: "user",
+    confirmedAt: "2026-08-13T08:01:00.000Z",
+  });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "no-swipe-evidence-gate-"));
+  try {
+    await assert.rejects(
+      createDouyinRunner({
+        tab: {},
+        runConfig: confirmed,
+        activeAccountRef: confirmed.account_ref,
+        outputDir: directory,
+        quotaPath: path.join(directory, "quota.json"),
+        queuePath: path.join(directory, "queue.jsonl"),
+      }),
+      /resolveProfileEvidence/,
+    );
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("author profile lookup is not limited to the upper right sidebar", () => {
+  const links = [
+    { href: "/hashtag/camera", text: "#相机", y: 100 },
+    { href: "/user/MS4wLjABAAAAcreator", text: "@摄影师阿北", y: 920 },
+  ];
+  assert.equal(
+    selectAuthorProfileHref(links, "摄影师阿北"),
+    "/user/MS4wLjABAAAAcreator",
   );
 });
 

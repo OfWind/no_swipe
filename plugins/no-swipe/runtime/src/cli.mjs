@@ -6,10 +6,12 @@ import {
   computeConfigHash,
   confirmRunConfig,
   createProfileSnapshot,
+  materializeOnboardingPreset,
   readJson,
   resolveAccountProfile,
   updateAccountProfile,
   validateAccountProfile,
+  validateOnboardingPreset,
   validateRunConfig,
   writeJsonAtomic,
 } from "./config.mjs";
@@ -24,6 +26,8 @@ function usage() {
     "  node runtime/src/cli.mjs profile bind <profile.json> [--data-dir .no-swipe]",
     "  node runtime/src/cli.mjs profile resolve <account-ref> [--data-dir .no-swipe]",
     "  node runtime/src/cli.mjs profile update <profile.json> [--data-dir .no-swipe]",
+    "  node runtime/src/cli.mjs preset validate <preset.json>",
+    "  node runtime/src/cli.mjs preset materialize <preset.json> --account-ref <ref> --profile-id <id> --run-id <id> [--profile-mode preset|extend|replace] [--profile-input <json>] [--run-mode preset|extend|replace] [--run-input <json>] [--output-dir <dir>]",
     "  node runtime/src/cli.mjs run validate <run.json> [--require-confirmed]",
     "  node runtime/src/cli.mjs run hash <run.json>",
     "  node runtime/src/cli.mjs run confirm <run.json> --confirmed-by <actor> [--output <file>]",
@@ -65,6 +69,35 @@ async function main(args) {
   if (resource === "profile" && command === "update") {
     const result = await updateAccountProfile(value, { dataDir });
     process.stdout.write(`${JSON.stringify({ ok: true, account_ref: value.account_ref, profile_id: value.profile_id, revision: value.revision, current: result.currentPath })}\n`);
+    return 0;
+  }
+  if (resource === "preset" && command === "validate") {
+    validateOnboardingPreset(value);
+    process.stdout.write(`${JSON.stringify({ ok: true, kind: "OnboardingPreset", preset_id: value.preset_id })}\n`);
+    return 0;
+  }
+  if (resource === "preset" && command === "materialize") {
+    const profileInputPath = option(args, "--profile-input");
+    const runInputPath = option(args, "--run-input");
+    const materialized = materializeOnboardingPreset(value, {
+      accountRef: option(args, "--account-ref"),
+      profileId: option(args, "--profile-id"),
+      runId: option(args, "--run-id"),
+      profileMode: option(args, "--profile-mode") || "preset",
+      profileInput: profileInputPath ? await readJson(profileInputPath) : undefined,
+      runMode: option(args, "--run-mode") || "preset",
+      runInput: runInputPath ? await readJson(runInputPath) : undefined,
+    });
+    const outputDir = option(args, "--output-dir");
+    if (outputDir) {
+      const profilePath = `${outputDir}/account-profile.json`;
+      const runPath = `${outputDir}/run-config.draft.json`;
+      await writeJsonAtomic(profilePath, materialized.profile);
+      await writeJsonAtomic(runPath, materialized.run_config);
+      process.stdout.write(`${JSON.stringify({ ok: true, preset_id: value.preset_id, application: materialized.application, profile: profilePath, run_config: runPath })}\n`);
+    } else {
+      process.stdout.write(`${JSON.stringify(materialized, null, 2)}\n`);
+    }
     return 0;
   }
   if (resource === "run" && command === "validate") {

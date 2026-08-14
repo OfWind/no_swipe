@@ -58,8 +58,9 @@ test("product entrypoints do not contain the former test persona or implicit exe
     "skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs",
   ].map((file) => fs.readFile(path.join(ROOT, file), "utf8")));
   const combined = sources.join("\n");
+  const manifestContent = JSON.stringify(JSON.parse(sources[0]));
   assert.doesNotMatch(combined, /executeFollow\s*:\s*true|executeComments\s*:\s*true/);
-  assert.doesNotMatch(sources[0], /科技|3C|人工智能/i);
+  assert.doesNotMatch(manifestContent, /科技|3C|人工智能/i);
   assert.doesNotMatch(sources[2], /科技|3C|人工智能/i);
 });
 

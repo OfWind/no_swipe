@@ -2,7 +2,7 @@
 // exclusively from the confirmed AccountProfile snapshot; this module has no
 // built-in product or topic persona.
 
-const textOf = (raw) => [raw?.title, raw?.caption, raw?.text, raw?.author]
+const textOf = (raw) => [raw?.title, raw?.caption, raw?.text, raw?.author, raw?.creatorType]
   .map((value) => String(value || "").toLowerCase())
   .join("\n");
 
@@ -13,23 +13,66 @@ const uniqueTerms = (terms) => [...new Set(
 const matchTerms = (text, terms) => uniqueTerms(terms).filter((term) => text.includes(term.toLowerCase()));
 
 export function classifyRecommendation(raw, profile) {
-  if (!profile || !Array.isArray(profile.positive_topics) || profile.positive_topics.length === 0) {
-    throw new Error("分类前必须提供已确认账号画像的 positive_topics");
+  const selectionMode = profile?.selection_mode || "include";
+  if (!profile || !Array.isArray(profile.positive_topics) || !Array.isArray(profile.negative_topics)) {
+    throw new Error("分类前必须提供已确认的账号画像快照");
+  }
+  if (selectionMode === "include" && profile.positive_topics.length === 0) {
+    throw new Error("include 画像必须提供 positive_topics");
   }
   const text = textOf(raw);
   const positive = matchTerms(text, profile.positive_topics);
   const priority = matchTerms(text, profile.high_priority_topics || []);
-  const negative = matchTerms(text, profile.negative_topics || []);
+  const negative = matchTerms(text, [
+    ...(profile.negative_topics || []),
+    ...(profile.excluded_creator_types || []),
+  ]);
   const matched = uniqueTerms([...positive, ...priority]);
-  const relevant = matched.length > 0 && negative.length === 0;
+  const relevant = negative.length === 0 && (selectionMode === "exclude_only" || matched.length > 0);
+
+  const contentRules = profile.content_rules;
+  const likeCount = Number(raw?.likeCount);
+  const belowMinimum = contentRules
+    && Number.isFinite(likeCount)
+    && likeCount < Number(contentRules.minimum_like_count);
+  const recentException = belowMinimum
+    && contentRules?.below_minimum_behavior === "skip_unless_recent"
+    && raw?.isRecentlyPublished === true;
+  const directSkip = Boolean(belowMinimum && !recentException);
+  const needsRecentEvidence = Boolean(
+    belowMinimum
+    && raw?.isRecentlyPublished !== true
+    && raw?.isRecentlyPublished !== false
+    && contentRules?.below_minimum_behavior === "skip_unless_recent",
+  );
+
+  const creatorRule = profile.creator_rules?.high_relevance;
+  const followerCount = Number(raw?.creatorFollowerCount);
+  const followerEvidence = Number.isFinite(followerCount);
+  const stabilityEvidence = raw?.creatorRecentLikesStable === true || raw?.creatorRecentLikesStable === false;
+  const creatorHigh = creatorRule
+    ? followerEvidence
+      && followerCount >= Number(creatorRule.follower_count_min)
+      && followerCount <= Number(creatorRule.follower_count_max)
+      && (!creatorRule.require_stable_recent_likes || raw?.creatorRecentLikesStable === true)
+    : null;
   const highMatchCount = Math.max(1, Number(profile.classification?.high_match_count || 2));
-  const high = relevant && (priority.length > 0 || matched.length >= highMatchCount);
+  const keywordHigh = priority.length > 0 || matched.length >= highMatchCount;
+  const high = relevant && !directSkip && (creatorRule ? creatorHigh : keywordHigh);
+  const needsCreatorProfile = relevant && (
+    needsRecentEvidence
+    || (creatorRule && (!followerEvidence || (creatorRule.require_stable_recent_likes && !stabilityEvidence)))
+  );
   return {
     relevant,
     high,
     matched,
     excluded: negative,
-    level: high ? "high" : (relevant ? "medium" : "none"),
+    level: high ? "high" : (relevant && !directSkip ? "medium" : "none"),
+    directSkip,
+    recentException,
+    needsCreatorProfile,
+    notInterestedEligible: negative.length > 0 || (selectionMode === "include" && !relevant),
   };
 }
 

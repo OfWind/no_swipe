@@ -1,0 +1,41 @@
+:root {
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #14212a;
+  background: #f3f5f4;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+.shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.card {
+  width: min(100%, 520px); background: #fff; border: 1px solid #dfe5e2; border-radius: 24px;
+  padding: 36px; box-shadow: 0 24px 70px rgba(23, 63, 95, .12);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 750; color: #173f5f; }
+.mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: #173f5f; color: white; }
+h1 { margin: 28px 0 10px; font-size: clamp(25px, 5vw, 34px); line-height: 1.15; }
+h2 { margin: 24px 0 8px; font-size: 17px; }
+p { line-height: 1.6; }
+.muted { color: #64727a; }
+.stack { display: grid; gap: 14px; margin-top: 24px; }
+label { display: grid; gap: 7px; font-size: 14px; font-weight: 650; }
+input {
+  width: 100%; padding: 13px 14px; border-radius: 12px; border: 1px solid #cbd5d1;
+  font: inherit; outline: none;
+}
+input:focus { border-color: #173f5f; box-shadow: 0 0 0 3px rgba(23, 63, 95, .12); }
+button {
+  appearance: none; border: 0; border-radius: 999px; padding: 13px 18px; font: inherit;
+  font-weight: 720; cursor: pointer; background: #173f5f; color: #fff;
+}
+button.secondary { background: #edf1ef; color: #24343d; }
+button:disabled { opacity: .55; cursor: wait; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
+.permissions { margin: 20px 0 0; padding: 0; list-style: none; border: 1px solid #e4e9e6; border-radius: 16px; overflow: hidden; }
+.permissions li { padding: 14px 16px; border-bottom: 1px solid #e4e9e6; }
+.permissions li:last-child { border-bottom: 0; }
+.permissions strong { display: block; margin-bottom: 4px; }
+.error { color: #a32620; background: #fff0ef; border-radius: 12px; padding: 12px 14px; }
+.success { color: #155f3b; background: #eaf8f0; border-radius: 12px; padding: 12px 14px; }
+a { color: #173f5f; }
+code { word-break: break-all; }
+@media (max-width: 520px) { .card { padding: 26px 22px; border-radius: 18px; } .actions { grid-template-columns: 1fr; } }

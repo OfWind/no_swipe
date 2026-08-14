@@ -17,21 +17,32 @@ from __future__ import annotations
 
 import argparse
 import csv
+import getpass
 import hashlib
 import json
 import sqlite3
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
 
-ROOT = Path(__file__).resolve().parent
+from collector.auth import AuthClient, AuthError
+from collector.config import load_config
+from collector.outbox import ensure_outbox_schema, queue_record, refresh_queued_record
+from collector.uploader import apply_mcp_ack, flush_pending, prepare_mcp_batch, queue_counts
+
+
+ROOT = SCRIPT_ROOT
 DEFAULT_DB = ROOT / "douyin_rpa_session.sqlite"
 DEFAULT_CSV = ROOT / "douyin_rpa_observations.csv"
 DEFAULT_TARGET_CSV = ROOT / "douyin_rpa_target_100.csv"
+BEIJING = timezone(timedelta(hours=8))
 
 CSV_FIELDS = [
     "observation_id",
@@ -79,7 +90,7 @@ CSV_FIELDS = [
 ]
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(BEIJING).isoformat(timespec="seconds")
 
 
 def parse_number(value: Any) -> float | None:
@@ -205,6 +216,7 @@ def db_connect(path: Path) -> sqlite3.Connection:
     ):
         if column not in observation_columns:
             conn.execute(f"ALTER TABLE observations ADD COLUMN {column} {definition}")
+    ensure_outbox_schema(conn)
     conn.commit()
     return conn
 
@@ -235,7 +247,7 @@ def ensure_session(conn: sqlite3.Connection, target: int, force_new: bool = Fals
         existing = active_session(conn)
         if existing:
             return existing
-    session_id = uuid.uuid4().hex
+    session_id = str(uuid.uuid4())
     started_epoch = time.time()
     conn.execute(
         "INSERT INTO sessions(session_id, started_at, started_epoch, target_count, count_mode, status) VALUES (?, ?, ?, ?, ?, 'active')",
@@ -356,6 +368,7 @@ def insert_record(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
         f"INSERT INTO observations({','.join(db_fields)}) VALUES ({placeholders})",
         values,
     )
+    queue_record(conn, row)
     conn.commit()
 
 
@@ -404,7 +417,7 @@ def command_start(args: argparse.Namespace) -> None:
     session = ensure_session(conn, args.target, args.new, count_mode)
     observed, relevant = counts(conn, session["session_id"])
     progress = observed if session["count_mode"] == "observed" else relevant
-    print(json.dumps({
+    output = {
         "session_id": session["session_id"],
         "status": session["status"],
         "target": session["target_count"],
@@ -414,7 +427,10 @@ def command_start(args: argparse.Namespace) -> None:
         "progress": progress,
         "started_at": session["started_at"],
         "elapsed_seconds": round(time.time() - float(session["started_epoch"]), 3),
-    }, ensure_ascii=False))
+    }
+    output["upload"] = queue_counts(conn)
+    output["mcp_upload"] = prepare_mcp_batch(conn)
+    print(json.dumps(output, ensure_ascii=False))
 
 
 def load_payload(raw: str | None, file: Path | None) -> Any:
@@ -500,6 +516,8 @@ def command_record(args: argparse.Namespace) -> None:
         "first_feed_index": results[0]["feed_index"],
         "last": results[-1],
     }
+    output["upload"] = queue_counts(conn)
+    output["mcp_upload"] = prepare_mcp_batch(conn)
     print(json.dumps(output, ensure_ascii=False))
 
 
@@ -512,7 +530,7 @@ def command_status(args: argparse.Namespace) -> None:
         return
     observed, relevant = counts(conn, session["session_id"])
     progress = observed if session["count_mode"] == "observed" else relevant
-    print(json.dumps({
+    output = {
         "session_id": session["session_id"],
         "status": session["status"],
         "target": session["target_count"],
@@ -523,7 +541,9 @@ def command_status(args: argparse.Namespace) -> None:
         "remaining": max(0, int(session["target_count"]) - progress),
         "completed": progress >= int(session["target_count"]),
         "elapsed_seconds": round(time.time() - float(session["started_epoch"]), 3),
-    }, ensure_ascii=False))
+        "upload": queue_counts(conn),
+    }
+    print(json.dumps(output, ensure_ascii=False))
 
 
 def command_amend(args: argparse.Namespace) -> None:
@@ -534,6 +554,11 @@ def command_amend(args: argparse.Namespace) -> None:
     ).fetchone()
     if row is None:
         raise SystemExit("observation not found")
+    upload_state = conn.execute(
+        "SELECT status FROM outbox WHERE record_id=?", (args.observation_id,)
+    ).fetchone()
+    if upload_state is not None and upload_state["status"] == "sent":
+        raise SystemExit("uploaded observations are immutable; create a correction record instead")
     relevant = 1 if args.relevant else 0
     decision = args.decision or ("keep" if relevant else "skip")
     action = args.action or ("watch_then_next" if relevant else "skip")
@@ -574,6 +599,8 @@ def command_amend(args: argparse.Namespace) -> None:
             args.observation_id,
         ),
     )
+    refresh_queued_record(conn, args.observation_id)
+    conn.commit()
     rebuild_csv_exports(conn, args.csv, args.target_csv)
     session = conn.execute("SELECT session_id FROM observations WHERE observation_id=?", (args.observation_id,)).fetchone()
     observed, relevant_count = counts(conn, session["session_id"])
@@ -599,7 +626,7 @@ def command_finish(args: argparse.Namespace) -> None:
     conn.commit()
     observed, relevant = counts(conn, session["session_id"])
     progress = observed if session["count_mode"] == "observed" else relevant
-    print(json.dumps({
+    output = {
         "ok": True,
         "session_id": session["session_id"],
         "observed": observed,
@@ -609,7 +636,12 @@ def command_finish(args: argparse.Namespace) -> None:
         "elapsed_seconds": round(elapsed, 3),
         "progress": progress,
         "completed": progress >= int(session["target_count"]),
-    }, ensure_ascii=False))
+    }
+    output["upload"] = queue_counts(conn)
+    output["mcp_upload"] = prepare_mcp_batch(
+        conn, heartbeat_session_id=session["session_id"]
+    )
+    print(json.dumps(output, ensure_ascii=False))
 
 
 def command_rebuild(args: argparse.Namespace) -> None:
@@ -634,6 +666,64 @@ def command_sample_dwell(args: argparse.Namespace) -> None:
         "distribution": "truncated_normal",
         "relevant": args.relevant,
     }, ensure_ascii=False))
+
+
+def command_auth_login(args: argparse.Namespace) -> None:
+    try:
+        auth = AuthClient(load_config())
+        auth.send_otp(args.email)
+        token = args.token or getpass.getpass("请输入邮箱中的 6 位验证码: ")
+        session = auth.verify_otp(args.email, token)
+    except AuthError as exc:
+        raise SystemExit(str(exc)) from exc
+    user = session.get("user") or {}
+    print(json.dumps({"ok": True, "logged_in": True, "email": user.get("email")}, ensure_ascii=False))
+
+
+def command_auth_status(args: argparse.Namespace) -> None:
+    try:
+        status = AuthClient(load_config()).status()
+    except AuthError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(status, ensure_ascii=False))
+
+
+def command_auth_logout(args: argparse.Namespace) -> None:
+    try:
+        AuthClient(load_config()).logout()
+    except AuthError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps({"ok": True, "logged_in": False}, ensure_ascii=False))
+
+
+def command_upload(args: argparse.Namespace) -> None:
+    conn = db_connect(args.db)
+    result = flush_pending(conn, batch_size=args.batch_size)
+    print(json.dumps(result, ensure_ascii=False))
+
+
+def command_mcp_next(args: argparse.Namespace) -> None:
+    conn = db_connect(args.db)
+    result = prepare_mcp_batch(conn, batch_size=args.batch_size)
+    print(json.dumps(result, ensure_ascii=False))
+
+
+def command_mcp_ack(args: argparse.Namespace) -> None:
+    conn = db_connect(args.db)
+    payload = load_payload(args.json, args.json_file)
+    if not isinstance(payload, dict):
+        raise SystemExit("MCP acknowledgement must be a JSON object")
+    batch_record_ids = payload.get("batch_record_ids")
+    response = payload.get("response")
+    if not isinstance(batch_record_ids, list) or not all(isinstance(value, str) for value in batch_record_ids):
+        raise SystemExit("batch_record_ids must be an array of strings")
+    if not isinstance(response, dict):
+        raise SystemExit("response must be a JSON object")
+    try:
+        result = apply_mcp_ack(conn, batch_record_ids, response)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(json.dumps(result, ensure_ascii=False))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -681,6 +771,30 @@ def build_parser() -> argparse.ArgumentParser:
     dwell.add_argument("--relevant", action="store_true")
     dwell.add_argument("--score", type=float, default=0.0)
     dwell.set_defaults(func=command_sample_dwell)
+
+    auth_login = sub.add_parser("auth-login", help="legacy direct upload login with an email OTP")
+    auth_login.add_argument("--email", required=True)
+    auth_login.add_argument("--token", help=argparse.SUPPRESS)
+    auth_login.set_defaults(func=command_auth_login)
+
+    auth_status = sub.add_parser("auth-status", help="show cached Supabase login status")
+    auth_status.set_defaults(func=command_auth_status)
+
+    auth_logout = sub.add_parser("auth-logout", help="revoke and remove the cached Supabase login")
+    auth_logout.set_defaults(func=command_auth_logout)
+
+    upload = sub.add_parser("upload", help="flush the durable upload outbox")
+    upload.add_argument("--batch-size", type=int, default=100)
+    upload.set_defaults(func=command_upload)
+
+    mcp_next = sub.add_parser("mcp-next", help="emit one durable batch for the authenticated MCP upload tool")
+    mcp_next.add_argument("--batch-size", type=int, default=100)
+    mcp_next.set_defaults(func=command_mcp_next)
+
+    mcp_ack = sub.add_parser("mcp-ack", help="apply an MCP upload acknowledgement to the durable outbox")
+    mcp_ack.add_argument("--json")
+    mcp_ack.add_argument("--json-file", type=Path)
+    mcp_ack.set_defaults(func=command_mcp_ack)
     return parser
 
 

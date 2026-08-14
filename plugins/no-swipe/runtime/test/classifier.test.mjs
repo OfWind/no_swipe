@@ -28,3 +28,51 @@ test("classification is driven only by the supplied account profile", () => {
 test("classification refuses to invent a default profile", () => {
   assert.throws(() => classifyRecommendation({ title: "任意内容" }, null), /账号画像/);
 });
+
+const broadProfile = {
+  selection_mode: "exclude_only",
+  positive_topics: [],
+  negative_topics: ["影视剪辑", "擦边"],
+  excluded_creator_types: ["公司账号"],
+  content_rules: {
+    minimum_like_count: 1000,
+    below_minimum_behavior: "skip_unless_recent",
+  },
+  creator_rules: {
+    high_relevance: {
+      follower_count_min: 100000,
+      follower_count_max: 200000,
+      require_stable_recent_likes: true,
+    },
+  },
+};
+
+test("exclude-only profile watches ordinary lanes and rejects configured lanes", () => {
+  const ordinary = classifyRecommendation({
+    title: "城市周末散步",
+    likeCount: 5000,
+    creatorFollowerCount: 150000,
+    creatorRecentLikesStable: true,
+  }, broadProfile);
+  assert.equal(ordinary.relevant, true);
+  assert.equal(ordinary.high, true);
+
+  const excluded = classifyRecommendation({ title: "明星影视剪辑", likeCount: 8000 }, broadProfile);
+  assert.equal(excluded.relevant, false);
+  assert.equal(excluded.notInterestedEligible, true);
+});
+
+test("low-like content skips until recent-publication evidence grants the exception", () => {
+  const unknown = classifyRecommendation({ title: "普通内容", likeCount: 500 }, broadProfile);
+  assert.equal(unknown.directSkip, true);
+  assert.equal(unknown.needsCreatorProfile, true);
+  assert.equal(unknown.notInterestedEligible, false);
+
+  const recent = classifyRecommendation({
+    title: "刚发布的普通内容",
+    likeCount: 500,
+    isRecentlyPublished: true,
+  }, broadProfile);
+  assert.equal(recent.directSkip, false);
+  assert.equal(recent.recentException, true);
+});

@@ -1,4 +1,4 @@
 interface:
-  display_name: "抖音账号画像与推荐流 RPA"
-  short_description: "复用账号画像，确认每轮比例授权后采集推荐流"
-  default_prompt: "Use $douyin-recommendation-rpa to reuse or bind the active account profile, prepare an explicit RunConfig, request confirmation, and only then run or audit the recommendation feed."
+  display_name: "抖音推荐流一键配置"
+  short_description: "简短确认账号方案后，创建目标并连续执行推荐流"
+  default_prompt: "Use $douyin-recommendation-rpa to open the active Douyin account profile, show one compact preset, wait for my chat confirmation, create one durable Goal, and execute the confirmed feed run."

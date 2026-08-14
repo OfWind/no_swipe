@@ -19,7 +19,7 @@
 
 ### 当前进度（2026-08-13）
 
-第一安全切片已进入验证阶段：插件包补齐依赖契约和缺失模块；四个 Schema、安全默认值、抖音平台配置、配置校验/确认/哈希 CLI 已实现；现有 Skill 已改为“一账号一画像、每轮单独确认策略”；runner 已统一消费 confirmed RunConfig，Test5/6/7 不再携带权限或比例。旧 collector 的事务、显式 run routing 与完整恢复仍属于 Phase 3，尚未宣称完成。
+第一安全切片已进入用户反馈迭代：插件包补齐依赖契约和缺失模块；Schema、平台配置、配置校验/确认/哈希 CLI 已实现；Skill 已改为“一账号一画像 + 单张预设卡确认”；runner 统一消费 confirmed RunConfig。旧 collector 的事务、显式 run routing 与完整恢复仍属于 Phase 3。
 
 ## 2. Phase 0：仓库卫生与发布包自洽
 
@@ -57,7 +57,7 @@ README.md
 
 ## 3. Phase 1：配置契约与运行前问询门
 
-目标：先消除固定画像、固定比例和预设授权，再继续模块重构。
+目标：把画像、比例和授权从 Skill/代码字面量迁入可见、可替换、可校验的版本化预设，再继续模块重构。
 
 ### 3.1 Schema 与配置文件
 
@@ -94,6 +94,9 @@ README.md
 - [x] 每轮强制收集目标、点赞率、收藏率、重合率、评论率、关注率、完播率和“不感兴趣”策略，不重复询问已绑定画像内容。
 - [x] 支持“全部不互动”快捷回答，但仍生成明确的零比例。
 - [x] 展示账号、画像名称/revision 和本次策略摘要并等待明确确认。
+- [x] 强制使用原生 `request_user_input` 作为确认等待边界；删除普通聊天确认降级路径。
+- [x] 原生确认后创建或复用同一 `run_id` 的持久 Goal，再开始推荐流。
+- [x] 为自由输入实现 profile/run 独立的 `preset|extend|replace` 编译语义；replace scope 不继承预设。
 - [x] 改造运行入口，缺少 confirmed 配置时拒绝启动并回到准备流程。
 - [ ] 将导出流程拆到 `export-recommendation-run`。
 - [x] 更新现有 Skill 的 `agents/openai.yaml`，确保默认 prompt 与新行为一致。
@@ -121,6 +124,8 @@ README.md
 - [x] 修改 confirmed 配置后确认状态失效。
 - [ ] Skill forward test A：未绑定账号请求“刷 100 条推荐流”，必须先完成账号画像建档和本次策略问询。
 - [ ] Skill forward test B：已绑定账号再次请求运行，只询问本次目标与策略，不重复询问画像。
+- [x] Skill contract test C：`request_user_input -> run confirm -> create_goal -> feed` 顺序固定，且不存在普通聊天确认降级文案。
+- [x] Runtime test D：`使用预设，300条` 只覆盖目标；profile replace 后不存在青年白领预设字段。
 
 ### 3.6 验收
 
@@ -132,6 +137,8 @@ README.md
 ## 4. Phase 2：Runtime 模块化
 
 目标：把浏览器适配、策略、编排、存储和导出从大文件拆成稳定边界。
+
+- [x] 作者主页证据入口优先点击当前推荐卡片头像/作者名，配置化 selector；卡片任意位置的可信 `/user/` 链接可回退，不依赖右侧栏范围。
 
 ### 4.1 Contracts
 

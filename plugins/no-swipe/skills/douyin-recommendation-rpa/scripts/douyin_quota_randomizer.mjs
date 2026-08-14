@@ -368,7 +368,9 @@ export class DouyinQuotaPolicy {
     const watchToEnd = completionAllocation?.label === "complete";
     const commentAllocation = relevance === "high" ? this.allocators.comment.next() : null;
     const commentCandidate = commentAllocation?.label === "comment";
-    const notInterestedEligible = relevance === "none" && !["live", "ad"].includes(contentType);
+    const notInterestedEligible = relevance === "none"
+      && !["live", "ad"].includes(contentType)
+      && event.notInterestedEligible !== false;
     const notInterestedAllocation = notInterestedEligible ? this.allocators.notInterested.next() : null;
     const notInterested = notInterestedAllocation?.label === "apply";
 

@@ -22,6 +22,29 @@ export class ConfigValidationError extends Error {
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+function mergeDecisionObject(base, override) {
+  if (!isObject(override)) return clone(override);
+  const merged = isObject(base) ? clone(base) : {};
+  for (const [key, value] of Object.entries(override)) {
+    merged[key] = isObject(value) && isObject(merged[key])
+      ? mergeDecisionObject(merged[key], value)
+      : clone(value);
+  }
+  return merged;
+}
+
+function applyDecisionMode(base, mode, input, scope) {
+  if (!["preset", "extend", "replace"].includes(mode)) {
+    throw new Error(`${scope} mode 必须是 preset、extend 或 replace`);
+  }
+  if (mode === "preset") {
+    if (input !== undefined) throw new Error(`${scope} mode=preset 时不能提供 input`);
+    return clone(base);
+  }
+  if (!isObject(input)) throw new Error(`${scope} mode=${mode} 时必须提供 JSON 对象 input`);
+  return mode === "extend" ? mergeDecisionObject(base, input) : clone(input);
+}
+
 export function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!isObject(value)) return value;
@@ -53,10 +76,15 @@ export function createProfileSnapshot(profile) {
     account_ref: profile.account_ref,
     revision: profile.revision,
     name: profile.name,
+    ...(profile.selection_mode ? { selection_mode: profile.selection_mode } : {}),
+    ...(profile.audience ? { audience: [...profile.audience] } : {}),
     positive_topics: [...profile.positive_topics],
     high_priority_topics: [...(profile.high_priority_topics || [])],
     negative_topics: [...profile.negative_topics],
+    ...(profile.excluded_creator_types ? { excluded_creator_types: [...profile.excluded_creator_types] } : {}),
     boundary_guidance: [...profile.boundary_guidance],
+    ...(profile.content_rules ? { content_rules: clone(profile.content_rules) } : {}),
+    ...(profile.creator_rules ? { creator_rules: clone(profile.creator_rules) } : {}),
     classification: clone(profile.classification || { high_match_count: 2 }),
   };
   return { ...snapshot, profile_hash: digest(snapshot) };
@@ -115,13 +143,41 @@ function requireDateTime(value, pathName, issues) {
   if (typeof value === "string" && Number.isNaN(Date.parse(value))) add(issues, pathName, "必须是 ISO 8601 时间");
 }
 
+function validateContentRules(rules, pathName, issues) {
+  const keys = ["minimum_like_count", "below_minimum_behavior", "recent_evidence_sources", "recent_definition"];
+  if (!requireExactKeys(rules, keys, keys, pathName, issues)) return;
+  requireInteger(rules.minimum_like_count, `${pathName}.minimum_like_count`, issues, 0);
+  if (!["skip", "skip_unless_recent"].includes(rules.below_minimum_behavior)) add(issues, `${pathName}.below_minimum_behavior`, "必须是 skip 或 skip_unless_recent");
+  requireStringArray(rules.recent_evidence_sources, `${pathName}.recent_evidence_sources`, issues, { minimum: 1 });
+  for (const source of rules.recent_evidence_sources || []) {
+    if (!["feed_published_at", "creator_profile_video_list"].includes(source)) add(issues, `${pathName}.recent_evidence_sources`, `不支持 ${source}`);
+  }
+  requireString(rules.recent_definition, `${pathName}.recent_definition`, issues);
+}
+
+function validateCreatorRules(rules, pathName, issues) {
+  if (!requireExactKeys(rules, ["high_relevance"], ["high_relevance"], pathName, issues)) return;
+  const highPath = `${pathName}.high_relevance`;
+  const keys = ["follower_count_min", "follower_count_max", "require_stable_recent_likes", "stability_definition", "evidence_source"];
+  if (!requireExactKeys(rules.high_relevance, keys, keys, highPath, issues)) return;
+  requireInteger(rules.high_relevance.follower_count_min, `${highPath}.follower_count_min`, issues, 0);
+  requireInteger(rules.high_relevance.follower_count_max, `${highPath}.follower_count_max`, issues, 0);
+  if (rules.high_relevance.follower_count_max < rules.high_relevance.follower_count_min) add(issues, highPath, "粉丝上限不能小于下限");
+  if (typeof rules.high_relevance.require_stable_recent_likes !== "boolean") add(issues, `${highPath}.require_stable_recent_likes`, "必须是布尔值");
+  requireString(rules.high_relevance.stability_definition, `${highPath}.stability_definition`, issues);
+  if (rules.high_relevance.evidence_source !== "creator_profile") add(issues, `${highPath}.evidence_source`, "当前只支持 creator_profile");
+}
+
 export function validateAccountProfile(profile) {
   const issues = [];
   const required = [
     "schema_version", "profile_id", "platform", "account_ref", "revision", "name",
     "positive_topics", "negative_topics", "boundary_guidance", "created_at", "updated_at",
   ];
-  const allowed = [...required, "high_priority_topics", "classification"];
+  const allowed = [
+    ...required, "selection_mode", "audience", "high_priority_topics", "excluded_creator_types",
+    "content_rules", "creator_rules", "classification",
+  ];
   if (requireExactKeys(profile, allowed, required, "$", issues)) {
     if (profile.schema_version !== CONTRACT_VERSION) add(issues, "$.schema_version", `仅支持 ${CONTRACT_VERSION}`);
     if (profile.platform !== "douyin") add(issues, "$.platform", "当前仅支持 douyin");
@@ -129,10 +185,16 @@ export function validateAccountProfile(profile) {
     requireString(profile.account_ref, "$.account_ref", issues);
     requireInteger(profile.revision, "$.revision", issues, 1);
     requireString(profile.name, "$.name", issues);
-    requireStringArray(profile.positive_topics, "$.positive_topics", issues, { minimum: 1 });
+    const selectionMode = profile.selection_mode || "include";
+    if (!["include", "exclude_only"].includes(selectionMode)) add(issues, "$.selection_mode", "必须是 include 或 exclude_only");
+    requireStringArray(profile.audience || [], "$.audience", issues);
+    requireStringArray(profile.positive_topics, "$.positive_topics", issues, { minimum: selectionMode === "include" ? 1 : 0 });
     requireStringArray(profile.high_priority_topics || [], "$.high_priority_topics", issues);
-    requireStringArray(profile.negative_topics, "$.negative_topics", issues);
+    requireStringArray(profile.negative_topics, "$.negative_topics", issues, { minimum: selectionMode === "exclude_only" ? 1 : 0 });
+    requireStringArray(profile.excluded_creator_types || [], "$.excluded_creator_types", issues);
     requireStringArray(profile.boundary_guidance, "$.boundary_guidance", issues);
+    if (profile.content_rules !== undefined) validateContentRules(profile.content_rules, "$.content_rules", issues);
+    if (profile.creator_rules !== undefined) validateCreatorRules(profile.creator_rules, "$.creator_rules", issues);
     requireDateTime(profile.created_at, "$.created_at", issues);
     requireDateTime(profile.updated_at, "$.updated_at", issues);
     if (profile.classification !== undefined) {
@@ -147,16 +209,25 @@ export function validateAccountProfile(profile) {
 
 function validateProfileSnapshot(profile, issues) {
   const required = ["profile_id", "account_ref", "revision", "profile_hash", "name", "positive_topics", "negative_topics", "boundary_guidance"];
-  const allowed = [...required, "high_priority_topics", "classification"];
+  const allowed = [
+    ...required, "selection_mode", "audience", "high_priority_topics", "excluded_creator_types",
+    "content_rules", "creator_rules", "classification",
+  ];
   if (!requireExactKeys(profile, allowed, required, "$.interest_profile", issues)) return;
   requireString(profile.profile_id, "$.interest_profile.profile_id", issues);
   requireString(profile.account_ref, "$.interest_profile.account_ref", issues);
   requireInteger(profile.revision, "$.interest_profile.revision", issues, 1);
   requireString(profile.name, "$.interest_profile.name", issues);
-  requireStringArray(profile.positive_topics, "$.interest_profile.positive_topics", issues, { minimum: 1 });
+  const selectionMode = profile.selection_mode || "include";
+  if (!["include", "exclude_only"].includes(selectionMode)) add(issues, "$.interest_profile.selection_mode", "必须是 include 或 exclude_only");
+  requireStringArray(profile.audience || [], "$.interest_profile.audience", issues);
+  requireStringArray(profile.positive_topics, "$.interest_profile.positive_topics", issues, { minimum: selectionMode === "include" ? 1 : 0 });
   requireStringArray(profile.high_priority_topics || [], "$.interest_profile.high_priority_topics", issues);
-  requireStringArray(profile.negative_topics, "$.interest_profile.negative_topics", issues);
+  requireStringArray(profile.negative_topics, "$.interest_profile.negative_topics", issues, { minimum: selectionMode === "exclude_only" ? 1 : 0 });
+  requireStringArray(profile.excluded_creator_types || [], "$.interest_profile.excluded_creator_types", issues);
   requireStringArray(profile.boundary_guidance, "$.interest_profile.boundary_guidance", issues);
+  if (profile.content_rules !== undefined) validateContentRules(profile.content_rules, "$.interest_profile.content_rules", issues);
+  if (profile.creator_rules !== undefined) validateCreatorRules(profile.creator_rules, "$.interest_profile.creator_rules", issues);
   if (!/^sha256:[a-f0-9]{64}$/.test(String(profile.profile_hash || ""))) {
     add(issues, "$.interest_profile.profile_hash", "必须是 sha256 摘要");
   }
@@ -357,6 +428,73 @@ export function quotaConfigFromRunConfig(runConfig) {
     completionMaxDurationSeconds: 180,
     minimumRepeatHighCreatorCount: policy.follow.minimum_repeat_creator_count,
   };
+}
+
+function validatePresetShape(preset) {
+  const issues = [];
+  const keys = ["schema_version", "preset_id", "display_name", "user_facing_copy", "confirmation_notice", "profile", "run_defaults"];
+  if (requireExactKeys(preset, keys, keys, "$", issues)) {
+    if (preset.schema_version !== CONTRACT_VERSION) add(issues, "$.schema_version", `仅支持 ${CONTRACT_VERSION}`);
+    for (const key of ["preset_id", "display_name", "user_facing_copy", "confirmation_notice"]) requireString(preset[key], `$.${key}`, issues);
+    requireObject(preset.profile, "$.profile", issues);
+    requireObject(preset.run_defaults, "$.run_defaults", issues);
+  }
+  if (issues.length) throw new ConfigValidationError("OnboardingPreset", issues);
+}
+
+export function materializeOnboardingPreset(preset, {
+  accountRef,
+  profileId,
+  runId,
+  revision = 1,
+  timestamp = new Date().toISOString(),
+  profileMode = "preset",
+  profileInput,
+  runMode = "preset",
+  runInput,
+} = {}) {
+  validatePresetShape(preset);
+  for (const [name, value] of Object.entries({ accountRef, profileId, runId })) {
+    if (typeof value !== "string" || value.trim() === "") throw new Error(`${name} 必须是非空字符串`);
+  }
+  const profileDecision = applyDecisionMode(preset.profile, profileMode, profileInput, "profile");
+  const runDecision = applyDecisionMode(preset.run_defaults, runMode, runInput, "run");
+  const profile = {
+    ...profileDecision,
+    schema_version: CONTRACT_VERSION,
+    profile_id: profileId,
+    platform: "douyin",
+    account_ref: accountRef,
+    revision,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  validateAccountProfile(profile);
+  const runConfig = {
+    ...runDecision,
+    schema_version: CONTRACT_VERSION,
+    run_id: runId,
+    account_ref: accountRef,
+    interest_profile: createProfileSnapshot(profile),
+    status: "waiting_for_confirmation",
+  };
+  validateRunConfig(runConfig);
+  return {
+    preset_id: preset.preset_id,
+    application: { profile_mode: profileMode, run_mode: runMode },
+    profile,
+    run_config: runConfig,
+  };
+}
+
+export function validateOnboardingPreset(preset) {
+  materializeOnboardingPreset(preset, {
+    accountRef: "douyin:preset-validation",
+    profileId: "profile-preset-validation",
+    runId: "run-preset-validation",
+    timestamp: "2026-01-01T00:00:00.000Z",
+  });
+  return preset;
 }
 
 export async function readJson(filePath) {

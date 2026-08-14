@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0.0",
+  "preset_id": "douyin-youth-white-collar.v1",
+  "display_name": "青年白领 / Z世代 · 广谱探索",
+  "user_facing_copy": "面向18–40岁、一二线城市青年、白领和Z世代。影视剪辑、明星或公司账号、颜值、擦边、封建迷信、打假、军事热点（含影视化内容），以及解说他人游戏的创作者，统一点不感兴趣；其他内容都可以看。点赞少于1000的视频直接划走，能够从视频发布时间或作者主页列表确认是新发布的视频除外。高相关指10万–20万粉丝、且近期作品点赞相对平稳的创作者：点赞率10%，收藏率3%，关注率3%，不评论。默认观察100条。",
+  "confirmation_notice": "将默认开启点赞、收藏、评论、关注、不感兴趣和主页访问权限；评论率为0，因此本预设不会发表评论。点击“使用预设”即确认画像、运行参数与上述授权。",
+  "profile": {
+    "name": "青年白领 / Z世代 · 广谱探索",
+    "selection_mode": "exclude_only",
+    "audience": ["18–40岁", "一二线城市青年", "白领", "Z世代"],
+    "positive_topics": [],
+    "high_priority_topics": [],
+    "negative_topics": ["影视剪辑", "颜值", "擦边", "封建迷信", "打假", "军事热点（含影视化内容）", "他人游戏解说"],
+    "excluded_creator_types": ["明星账号", "公司账号", "解说他人游戏的创作者"],
+    "boundary_guidance": [
+      "排除项之外的内容默认可看，不要求命中正向关键词。",
+      "游戏内容本身不排除；只排除主要内容是解说他人游戏的创作者。",
+      "无法可靠判断是否属于排除项时，保持观察，不执行不感兴趣。"
+    ],
+    "content_rules": {
+      "minimum_like_count": 1000,
+      "below_minimum_behavior": "skip_unless_recent",
+      "recent_evidence_sources": ["feed_published_at", "creator_profile_video_list"],
+      "recent_definition": "页面可见发布时间或作者主页作品列表能够可靠表明该视频为新发布"
+    },
+    "creator_rules": {
+      "high_relevance": {
+        "follower_count_min": 100000,
+        "follower_count_max": 200000,
+        "require_stable_recent_likes": true,
+        "stability_definition": "作者主页近期作品点赞没有明显依赖单条爆款，整体相对平稳",
+        "evidence_source": "creator_profile"
+      }
+    },
+    "classification": {"high_match_count": 2}
+  },
+  "run_defaults": {
+    "goal": {"observed_target": 100, "relevant_target": null},
+    "interaction_policy": {
+      "rules": [
+        {
+          "eligible_relevance": ["high"],
+          "like_rate": 0.1,
+          "favorite_rate": 0.03,
+          "like_favorite_overlap_rate": 0.03,
+          "comment_rate": 0,
+          "completion_rate": 0,
+          "block_size": 100
+        },
+        {
+          "eligible_relevance": ["medium"],
+          "like_rate": 0,
+          "favorite_rate": 0,
+          "like_favorite_overlap_rate": 0,
+          "comment_rate": 0,
+          "completion_rate": 0,
+          "block_size": 100
+        }
+      ],
+      "comment": {"max_total": 0, "approval_mode": "per_run", "guidance": "不评论"},
+      "follow": {"eligible_relevance": ["high"], "rate": 0.03, "max_total": 3, "minimum_repeat_creator_count": 0, "block_size": 100},
+      "not_interested": {"rate": 1, "max_total": 100, "block_size": 100},
+      "profile_sampling": {"rate": 1, "max_total": 100}
+    },
+    "authorization": {
+      "like": true,
+      "favorite": true,
+      "comment": true,
+      "follow": true,
+      "not_interested": true,
+      "profile_visit": true
+    },
+    "versions": {
+      "adapter": "douyin.v1",
+      "classifier": "profile-rules.v2",
+      "policy": "quota.v2",
+      "contract": "1.0.0"
+    }
+  }
+}

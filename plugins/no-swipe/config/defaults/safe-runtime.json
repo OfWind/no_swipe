@@ -4,12 +4,12 @@
   "require_account_binding": true,
   "require_confirmed_config": true,
   "authorization_defaults": {
-    "like": false,
-    "favorite": false,
-    "comment": false,
-    "follow": false,
-    "not_interested": false,
-    "profile_visit": false
+    "like": true,
+    "favorite": true,
+    "comment": true,
+    "follow": true,
+    "not_interested": true,
+    "profile_visit": true
   },
   "stop_on_account_mismatch": true,
   "stop_on_unknown_page_state": true,

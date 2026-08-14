@@ -50,6 +50,16 @@ function cleanLine(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+export function selectAuthorProfileHref(links, author) {
+  const candidates = (links || []).filter((link) => /\/user\//.test(String(link?.href || "")));
+  const normalizedAuthor = cleanLine(author).replace(/^@/, "").toLowerCase();
+  if (normalizedAuthor) {
+    const named = candidates.find((link) => cleanLine(link.text).replace(/^@/, "").toLowerCase().includes(normalizedAuthor));
+    if (named) return named.href;
+  }
+  return candidates[0]?.href || "";
+}
+
 function isTimeLine(line) {
   return /^\d{1,3}:\d{2}\s*\/\s*\d{1,3}:\d{2}$/.test(line);
 }
@@ -179,10 +189,10 @@ async function getActiveCard(tab, platformConfig) {
   const listenIndex = lines.indexOf("听抖音");
   const preListen = listenIndex >= 0 ? lines.slice(0, listenIndex) : [];
   const counts = preListen.filter((line) => /^[\d.]+(?:万|亿|千)?$/.test(line)).slice(0, 4).map(parseCount);
-  const authorLink = page.links.find((link) => /\/user\//.test(link.href) && link.y >= page.y && link.y <= page.y + 260);
   let authorLine = lines.find((line) => /^@/.test(line));
   if (!authorLine && listenIndex >= 0) authorLine = lines.slice(listenIndex + 1).find((line) => line && !/^·/.test(line) && line !== "点击推荐");
   const author = cleanLine(authorLine).replace(/^@/, "");
+  const authorHref = selectAuthorProfileHref(page.links, author);
   const { title, caption } = findTitleAndCaption(lines, authorLine, platformConfig);
   const hashtags = [...new Set(page.links.filter((link) => /^#/.test(link.text)).map((link) => link.text))];
   const fallbackHashtags = [...new Set((caption.match(/#[\w\u4e00-\u9fff.]+/g) || []))];
@@ -198,7 +208,7 @@ async function getActiveCard(tab, platformConfig) {
     caption,
     text: cardText,
     author,
-    authorHref: authorLink?.href || "",
+    authorHref,
     hashtags: hashtags.length ? hashtags : fallbackHashtags,
     duration: Number.isFinite(active.duration) ? active.duration : null,
     currentTime: Number.isFinite(active.currentTime) ? active.currentTime : 0,
@@ -308,9 +318,9 @@ function profileTagSignals(text, profile) {
   return [...new Set(signals.filter((signal) => source.toLowerCase().includes(signal.toLowerCase())))];
 }
 
-async function inspectAuthorProfile(tab, card, profile, platformConfig) {
+async function inspectAuthorProfile(tab, card, profile, platformConfig, resolveProfileEvidence = null) {
   const result = {
-    attempted: true,
+    attempted: false,
     sampled: true,
     profile_url: "",
     visible_labels: [],
@@ -323,15 +333,43 @@ async function inspectAuthorProfile(tab, card, profile, platformConfig) {
     reason: "",
   };
   const feedUrl = await tab.url();
-  if (!card.authorHref) {
-    result.reason = "推荐流卡片没有可见作者主页链接";
-    return result;
+  const cardRoot = `.video_${card.id}`;
+  const entrySelectors = platformConfig?.ui?.author_profile_entry_selectors || [];
+  let opened = false;
+  let navigated = false;
+  for (const selector of entrySelectors) {
+    const entry = tab.playwright.locator(`${cardRoot} ${selector}`).filter({ visible: true });
+    const count = await entry.count();
+    if (!count) continue;
+    try {
+      await entry.first().click({ timeoutMs: 5000 });
+      await sleep(tab, 850);
+      opened = true;
+      result.attempted = true;
+      result.open_method = `click:${selector}`;
+      const currentUrl = await tab.url();
+      navigated = currentUrl !== feedUrl;
+      result.profile_url = currentUrl;
+      break;
+    } catch {
+      // Try the next configured visible entry before using the URL fallback.
+    }
   }
-  const profileUrl = new URL(card.authorHref, feedUrl).href;
-  result.profile_url = profileUrl;
-  try {
+  if (!opened && card.authorHref) {
+    const profileUrl = new URL(card.authorHref, feedUrl).href;
     await tab.goto(profileUrl);
     await sleep(tab, 850);
+    opened = true;
+    navigated = true;
+    result.attempted = true;
+    result.open_method = "url_fallback";
+    result.profile_url = profileUrl;
+  }
+  if (!opened) {
+    result.reason = "当前推荐卡片没有可用的头像、作者名或主页链接";
+    return result;
+  }
+  try {
     const body = await tab.playwright.locator("body").innerText({ timeoutMs: 5000 });
     result.page_state = isStopText(body, platformConfig) ? "verification" : "ok";
     result.visible_labels = profileTagSignals(body, profile);
@@ -339,12 +377,24 @@ async function inspectAuthorProfile(tab, card, profile, platformConfig) {
     result.tag_hit = result.visible_labels.length > 0;
     result.reason = result.tag_hit ? "公开主页可见昵称/简介/标签命中画像信号" : "公开主页可见文本未命中画像信号";
     result.stop_required = result.page_state !== "ok";
+    if (!result.stop_required && typeof resolveProfileEvidence === "function") {
+      const evidence = await resolveProfileEvidence({ tab, card, profile, visibleText: body });
+      if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
+        throw new Error("resolveProfileEvidence 必须返回证据对象");
+      }
+      result.evidence = {
+        creatorFollowerCount: evidence.creatorFollowerCount ?? null,
+        creatorRecentLikesStable: evidence.creatorRecentLikesStable ?? null,
+        isRecentlyPublished: evidence.isRecentlyPublished ?? null,
+      };
+    }
   } catch (error) {
     result.reason = `主页抽样读取失败：${String(error?.message || error).slice(0, 160)}`;
     result.stop_required = true;
   } finally {
     try {
-      await tab.back();
+      if (navigated) await tab.back();
+      else await tab.cua.keypress({ keys: ["ESC"] });
       await sleep(tab, 900);
       result.return_url = await tab.url();
       let returnedCard = await getActiveCard(tab, platformConfig);
@@ -476,6 +526,7 @@ function relevanceText(classification) {
 function classifyReason(classification, card) {
   if (card.contentType === "live") return "直播内容快速跳过";
   if (card.contentType === "ad") return "广告/推广内容快速跳过";
+  if (classification.directSkip) return "低于账号画像的最低点赞门槛，且未取得新发布例外证据";
   if (classification.high) return `命中账号画像的高相关信号：${classification.matched.join("、")}`;
   if (classification.relevant) return `命中账号画像的一般相关信号：${classification.matched.join("、")}`;
   if (classification.excluded?.length) return `命中账号画像排除项：${classification.excluded.join("、")}`;
@@ -626,6 +677,7 @@ export async function createDouyinRunner({
   queuePath,
   createCommentText = null,
   approveComment = null,
+  resolveProfileEvidence = null,
   platformConfig: suppliedPlatformConfig = null,
 }) {
   validateRunConfig(runConfig, { requireConfirmed: true });
@@ -643,6 +695,13 @@ export async function createDouyinRunner({
   }
   if (commentEnabled && runConfig.interaction_policy.comment.approval_mode === "per_item" && typeof approveComment !== "function") {
     throw new Error("逐条确认评论模式必须提供 approveComment 回调。");
+  }
+  const profileEvidenceRequired = Boolean(
+    runConfig.interest_profile.creator_rules
+    || runConfig.interest_profile.content_rules?.recent_evidence_sources?.includes("creator_profile_video_list"),
+  );
+  if (profileEvidenceRequired && typeof resolveProfileEvidence !== "function") {
+    throw new Error("当前画像需要创作者主页证据，必须提供 resolveProfileEvidence 回调后才能运行。");
   }
   const restored = await restoreRunnerStateFromQueue(queuePath, runConfig);
   const policy = await loadOrCreateQuotaPolicy(quotaPath, runConfig);
@@ -662,6 +721,7 @@ export async function createDouyinRunner({
     creatorCounts,
     createCommentText,
     approveComment,
+    resolveProfileEvidence,
     profileSampleRate: runConfig.interaction_policy.profile_sampling.rate,
     profileCheckedAuthors: restored.profileCheckedAuthors,
     profileSampledAuthors: restored.profileSampledAuthors,
@@ -686,11 +746,50 @@ export async function createDouyinRunner({
       text: effectiveCard.text,
       author: effectiveCard.author,
       live: effectiveCard.contentType === "live",
+      likeCount: effectiveCard.counts.like,
     };
-    const classification = classifyRecommendation(raw, state.runConfig.interest_profile);
-    const forceSkip = effectiveCard.contentType === "live" || effectiveCard.contentType === "ad";
-    const observedRelevant = classification.relevant && !forceSkip;
+    const authorization = state.runConfig.authorization;
+    const limits = state.runConfig.interaction_policy;
     const authorKey = effectiveCard.author || "";
+    let classification = classifyRecommendation(raw, state.runConfig.interest_profile);
+    let profileCheck = {
+      enabled: state.profileSampleRate > 0,
+      sampled: false,
+      attempted: false,
+      reason: state.profileSampleRate > 0 ? "本条未触发主页证据核验" : "未启用主页核验",
+    };
+    if (
+      classification.needsCreatorProfile
+      && authorKey
+      && authorization.profile_visit
+      && state.counters.profileVisits < limits.profile_sampling.max_total
+    ) {
+      state.profileCheckedAuthors.add(authorKey);
+      state.profileSampledAuthors.add(authorKey);
+      profileCheck = await inspectAuthorProfile(
+        tab,
+        effectiveCard,
+        state.runConfig.interest_profile,
+        state.platformConfig,
+        state.resolveProfileEvidence,
+      );
+      if (profileCheck.attempted) state.counters.profileVisits += 1;
+      if (profileCheck.stop_required || (profileCheck.attempted && profileCheck.returned_card_id !== effectiveCard.id)) {
+        return {
+          feed_index: feedIndex,
+          stop: true,
+          stop_reason: profileCheck.stop_required
+            ? (profileCheck.reason || "主页证据核验失败")
+            : "主页证据核验后未可靠返回原推荐卡片",
+        };
+      }
+      Object.assign(raw, profileCheck.evidence || {});
+      classification = classifyRecommendation(raw, state.runConfig.interest_profile);
+    }
+    const forceSkip = effectiveCard.contentType === "live"
+      || effectiveCard.contentType === "ad"
+      || classification.directSkip;
+    const observedRelevant = classification.relevant && !forceSkip;
     const repeatHighCreatorCount = creatorCounts.get(authorKey) || 0;
     if (classification.high && authorKey) creatorCounts.set(authorKey, repeatHighCreatorCount + 1);
     const decision = state.policy.decide({
@@ -702,12 +801,11 @@ export async function createDouyinRunner({
       repeatHighCreatorCount,
       feedFollowVisible: effectiveCard.followVisible,
       alreadyFollowed: effectiveCard.alreadyFollowed,
+      notInterestedEligible: classification.notInterestedEligible,
       pageState: before.pageState,
     });
     if (decision.stopRequired) return { feed_index: feedIndex, stop: true, stop_reason: decision.stopReason };
 
-    const authorization = state.runConfig.authorization;
-    const limits = state.runConfig.interaction_policy;
     const userActionResult = observedRelevant
       ? await clickPlannedActions(tab, effectiveCard, decision, authorization)
       : { like: { attempted: false, success: false }, favorite: { attempted: false, success: false } };
@@ -791,17 +889,10 @@ export async function createDouyinRunner({
       }
     }
 
-    let profileCheck = {
-      enabled: state.profileSampleRate > 0,
-      sampled: false,
-      attempted: false,
-      reason: state.profileSampleRate > 0 ? "本条未抽中主页核验" : "未启用主页抽样",
-    };
     if (
       observedRelevant
       && classification.high
       && authorKey
-      && effectiveCard.authorHref
       && state.profileSampleRate > 0
       && authorization.profile_visit
       && state.counters.profileVisits < limits.profile_sampling.max_total

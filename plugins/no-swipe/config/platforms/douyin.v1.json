@@ -21,6 +21,13 @@
   },
   "ui": {
     "content_end_markers": ["展开", "倍速", "详情", "TA的作品", "评论", "合集", "AI抖音", "相关推荐"],
+    "author_profile_entry_selectors": [
+      "a[href*='/user/']",
+      "[data-e2e='feed-author-avatar']",
+      "[data-e2e='video-author-avatar']",
+      "[data-e2e='feed-author-name']",
+      "[data-e2e='video-author-name']"
+    ],
     "comment_button_selectors": [
       "[data-e2e=\"feed-comment-icon\"]",
       "[data-e2e=\"video-player-comment\"]",
