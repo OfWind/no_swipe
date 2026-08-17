@@ -35,6 +35,8 @@ const broadProfile = {
   negative_topics: ["影视剪辑", "擦边"],
   excluded_creator_types: ["公司账号"],
   content_rules: {
+    short_video_max_duration_seconds: 60,
+    short_video_behavior: "not_interested_or_skip",
     minimum_like_count: 1000,
     below_minimum_behavior: "skip_unless_recent",
   },
@@ -75,4 +77,30 @@ test("low-like content skips until recent-publication evidence grants the except
   }, broadProfile);
   assert.equal(recent.directSkip, false);
   assert.equal(recent.recentException, true);
+});
+
+test("preset short videos at 60 seconds or less enter the immediate not-interested-or-skip lane", () => {
+  for (const durationSeconds of [15, 59.9, 60]) {
+    const result = classifyRecommendation({
+      title: "普通城市生活",
+      durationSeconds,
+      likeCount: 5000,
+    }, broadProfile);
+    assert.equal(result.shortVideo, true);
+    assert.equal(result.directSkip, true);
+    assert.equal(result.notInterestedEligible, true);
+    assert.equal(result.needsCreatorProfile, false);
+    assert.equal(result.level, "none");
+  }
+
+  const longer = classifyRecommendation({
+    title: "普通城市生活",
+    durationSeconds: 60.01,
+    likeCount: 5000,
+    creatorFollowerCount: 150000,
+    creatorRecentLikesStable: true,
+  }, broadProfile);
+  assert.equal(longer.shortVideo, false);
+  assert.equal(longer.directSkip, false);
+  assert.equal(longer.level, "high");
 });

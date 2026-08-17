@@ -27,10 +27,16 @@
       "type": "object", "additionalProperties": false,
       "required": ["minimum_like_count", "below_minimum_behavior", "recent_evidence_sources", "recent_definition"],
       "properties": {
+        "short_video_max_duration_seconds": {"type": "integer", "minimum": 1},
+        "short_video_behavior": {"enum": ["skip", "not_interested_or_skip"]},
         "minimum_like_count": {"type": "integer", "minimum": 0},
         "below_minimum_behavior": {"enum": ["skip", "skip_unless_recent"]},
         "recent_evidence_sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["feed_published_at", "creator_profile_video_list"]}},
         "recent_definition": {"type": "string", "minLength": 1}
+      },
+      "dependentRequired": {
+        "short_video_max_duration_seconds": ["short_video_behavior"],
+        "short_video_behavior": ["short_video_max_duration_seconds"]
       }
     },
     "creator_rules": {

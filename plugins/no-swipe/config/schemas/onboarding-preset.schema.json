@@ -23,7 +23,17 @@
         "negative_topics": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "excluded_creator_types": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "boundary_guidance": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "content_rules": {"type": "object"},
+        "content_rules": {
+          "type": "object",
+          "properties": {
+            "short_video_max_duration_seconds": {"type": "integer", "minimum": 1},
+            "short_video_behavior": {"enum": ["skip", "not_interested_or_skip"]}
+          },
+          "dependentRequired": {
+            "short_video_max_duration_seconds": ["short_video_behavior"],
+            "short_video_behavior": ["short_video_max_duration_seconds"]
+          }
+        },
         "creator_rules": {"type": "object"},
         "classification": {"type": "object"}
       }

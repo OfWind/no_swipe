@@ -526,6 +526,7 @@ function relevanceText(classification) {
 function classifyReason(classification, card) {
   if (card.contentType === "live") return "直播内容快速跳过";
   if (card.contentType === "ad") return "广告/推广内容快速跳过";
+  if (classification.shortVideo) return "视频时长不超过账号画像的短视频上限，立即不感兴趣或划走";
   if (classification.directSkip) return "低于账号画像的最低点赞门槛，且未取得新发布例外证据";
   if (classification.high) return `命中账号画像的高相关信号：${classification.matched.join("、")}`;
   if (classification.relevant) return `命中账号画像的一般相关信号：${classification.matched.join("、")}`;
@@ -746,6 +747,7 @@ export async function createDouyinRunner({
       text: effectiveCard.text,
       author: effectiveCard.author,
       live: effectiveCard.contentType === "live",
+      durationSeconds: effectiveCard.duration,
       likeCount: effectiveCard.counts.like,
     };
     const authorization = state.runConfig.authorization;

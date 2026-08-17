@@ -65,3 +65,24 @@ test("skill defines explicit extend and replace semantics", async () => {
   assert.match(skill, /copy no value from the preset into the replaced scope/);
   assert.match(skill, /--profile-mode <preset\|extend\|replace>/);
 });
+
+test("skill preserves a one-to-many No Swipe user to Douyin account registry", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  assert.match(skill, /1:n relationship/);
+  assert.match(skill, /never replaces, renames, or deletes an existing account directory/);
+  assert.match(skill, /Switching Douyin accounts selects another stored profile/);
+  assert.match(skill, /Do not put the login email in `account_ref`/);
+});
+
+test("skill prioritizes the confirmed 60-second immediate lane", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  assert.match(skill, /60 seconds or less enters the immediate lane/);
+  assert.match(skill, /otherwise swipe immediately/);
+  assert.match(skill, /Do not wait, visit the creator homepage, or allocate like/);
+});

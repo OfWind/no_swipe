@@ -62,7 +62,7 @@ README.md
 ### 3.1 Schema 与配置文件
 
 - [x] 新增 `account-profile.schema.json`。
-- [x] 在 Schema 中要求稳定 `account_ref`、`profile_id` 和 revision 标识；一对一绑定由后续存储层唯一约束保证。
+- [x] 在 Schema 中要求稳定 `account_ref`、`profile_id` 和 revision 标识；每个抖音账号与逻辑画像一对一，同一 No Swipe 用户可并列保存多个抖音账号目录。
 - [x] 新增 `run-config.schema.json`。
 - [x] 新增 `runtime-state.schema.json`。
 - [x] 新增 `event-envelope.schema.json`。

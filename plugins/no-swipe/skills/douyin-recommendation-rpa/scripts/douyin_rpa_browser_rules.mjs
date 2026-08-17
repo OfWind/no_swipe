@@ -31,6 +31,13 @@ export function classifyRecommendation(raw, profile) {
   const relevant = negative.length === 0 && (selectionMode === "exclude_only" || matched.length > 0);
 
   const contentRules = profile.content_rules;
+  const durationSeconds = Number(raw?.durationSeconds);
+  const shortVideo = Boolean(
+    contentRules?.short_video_max_duration_seconds
+    && Number.isFinite(durationSeconds)
+    && durationSeconds > 0
+    && durationSeconds <= Number(contentRules.short_video_max_duration_seconds),
+  );
   const likeCount = Number(raw?.likeCount);
   const belowMinimum = contentRules
     && Number.isFinite(likeCount)
@@ -38,7 +45,7 @@ export function classifyRecommendation(raw, profile) {
   const recentException = belowMinimum
     && contentRules?.below_minimum_behavior === "skip_unless_recent"
     && raw?.isRecentlyPublished === true;
-  const directSkip = Boolean(belowMinimum && !recentException);
+  const directSkip = Boolean(shortVideo || (belowMinimum && !recentException));
   const needsRecentEvidence = Boolean(
     belowMinimum
     && raw?.isRecentlyPublished !== true
@@ -59,7 +66,7 @@ export function classifyRecommendation(raw, profile) {
   const highMatchCount = Math.max(1, Number(profile.classification?.high_match_count || 2));
   const keywordHigh = priority.length > 0 || matched.length >= highMatchCount;
   const high = relevant && !directSkip && (creatorRule ? creatorHigh : keywordHigh);
-  const needsCreatorProfile = relevant && (
+  const needsCreatorProfile = relevant && !shortVideo && (
     needsRecentEvidence
     || (creatorRule && (!followerEvidence || (creatorRule.require_stable_recent_likes && !stabilityEvidence)))
   );
@@ -70,9 +77,12 @@ export function classifyRecommendation(raw, profile) {
     excluded: negative,
     level: high ? "high" : (relevant && !directSkip ? "medium" : "none"),
     directSkip,
+    shortVideo,
     recentException,
     needsCreatorProfile,
-    notInterestedEligible: negative.length > 0 || (selectionMode === "include" && !relevant),
+    notInterestedEligible: (
+      shortVideo && contentRules?.short_video_behavior === "not_interested_or_skip"
+    ) || negative.length > 0 || (selectionMode === "include" && !relevant),
   };
 }
 

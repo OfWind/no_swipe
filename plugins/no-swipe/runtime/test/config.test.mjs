@@ -9,6 +9,7 @@ import {
   bindAccountProfile,
   confirmRunConfig,
   createProfileSnapshot,
+  listAccountProfiles,
   materializeOnboardingPreset,
   quotaConfigFromRunConfig,
   resolveAccountProfile,
@@ -46,6 +47,8 @@ test("onboarding preset materializes one compact confirmed-ready decision", asyn
   });
   assert.equal(result.profile.selection_mode, "exclude_only");
   assert.deepEqual(result.profile.positive_topics, []);
+  assert.equal(result.profile.content_rules.short_video_max_duration_seconds, 60);
+  assert.equal(result.profile.content_rules.short_video_behavior, "not_interested_or_skip");
   assert.equal(result.run_config.interaction_policy.rules[0].like_rate, 0.1);
   assert.equal(result.run_config.interaction_policy.follow.rate, 0.03);
   assert.equal(result.run_config.interaction_policy.rules[0].comment_rate, 0);
@@ -112,18 +115,37 @@ test("replace mode rejects an omitted replacement object", async () => {
   );
 });
 
+test("short-video duration and behavior must be configured together", async () => {
+  const preset = await read("config/presets/douyin-youth-white-collar.v1.json");
+  delete preset.profile.content_rules.short_video_behavior;
+  assert.throws(() => validateOnboardingPreset(preset), ConfigValidationError);
+});
+
 test("product defaults expose all permissions but still require confirmation", async () => {
   const defaults = await read("config/defaults/safe-runtime.json");
   assert.ok(Object.values(defaults.authorization_defaults).every(Boolean));
   assert.equal(defaults.require_confirmed_config, true);
 });
 
-test("one account reuses one logical profile while revisions remain immutable", async () => {
+test("one No Swipe user keeps multiple Douyin account files while each account reuses one logical profile", async () => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "no-swipe-profile-registry-"));
   try {
     const profile = await read("tests/fixtures/account-profile.example.json");
     await bindAccountProfile(profile, { dataDir });
+    const secondProfile = {
+      ...profile,
+      profile_id: "profile-photography-b",
+      account_ref: "douyin:local:account-b",
+      name: "摄影账号 B",
+    };
+    await bindAccountProfile(secondProfile, { dataDir });
     assert.deepEqual(await resolveAccountProfile(profile.account_ref, { dataDir }), profile);
+    assert.deepEqual(await resolveAccountProfile(secondProfile.account_ref, { dataDir }), secondProfile);
+    assert.deepEqual(
+      (await listAccountProfiles({ dataDir })).map((item) => item.account_ref),
+      ["douyin:local:account-a", "douyin:local:account-b"],
+    );
+    assert.equal((await fs.readdir(path.join(dataDir, "accounts"))).length, 2);
     await assert.rejects(bindAccountProfile(profile, { dataDir }), /已绑定画像/);
 
     const revision2 = {
@@ -134,14 +156,17 @@ test("one account reuses one logical profile while revisions remain immutable", 
     };
     await updateAccountProfile(revision2, { dataDir });
     assert.equal((await resolveAccountProfile(profile.account_ref, { dataDir })).revision, 2);
+    assert.equal((await resolveAccountProfile(secondProfile.account_ref, { dataDir })).revision, 1);
 
-    const revision1Path = path.join(
-      dataDir,
-      "accounts",
-      (await fs.readdir(path.join(dataDir, "accounts")))[0],
-      "revisions/1.json",
-    );
-    assert.equal(JSON.parse(await fs.readFile(revision1Path, "utf8")).revision, 1);
+    const accountARevision = (await Promise.all(
+      (await fs.readdir(path.join(dataDir, "accounts"))).map(async (directory) => {
+        const revisionPath = path.join(dataDir, "accounts", directory, "revisions/1.json");
+        const candidate = JSON.parse(await fs.readFile(revisionPath, "utf8"));
+        return candidate.account_ref === profile.account_ref ? candidate : null;
+      }),
+    )).find(Boolean);
+    assert.ok(accountARevision);
+    assert.equal(accountARevision.revision, 1);
     assert.equal(await resolveAccountProfile("douyin:local:other", { dataDir }), null);
   } finally {
     await fs.rm(dataDir, { recursive: true, force: true });

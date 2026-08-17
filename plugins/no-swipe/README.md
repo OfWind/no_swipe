@@ -2,7 +2,9 @@
 
 No Swipe 是一个面向抖音推荐流测试的本地 Codex 插件，内置 `douyin-recommendation-rpa` skill。
 
-每个抖音账号维护一个可版本化画像；后续任务自动复用。首次建档时只展示一张自然语言预设卡，用一句普通对话等待用户确认或输入修改要求，不再填写逐字段表单。
+一个邮箱登录的 No Swipe 用户可以绑定多个抖音账号；每个抖音账号在 `.no-swipe/accounts/` 下维护独立、可版本化的画像，切换账号只选择对应画像，不替换其他账号文件。后续任务自动复用当前可见抖音账号的画像。首次建档时只展示一张自然语言预设卡，用一句普通对话等待用户确认或输入修改要求，不再填写逐字段表单。
+
+青年白领预设会把时长 60 秒及以下的视频放入立即处理通道：授权、配额和页面状态允许时点“不感兴趣”，否则立即划走；这类视频不进入观看、主页核验或正向互动池。
 
 运行配置使用 JSON Schema 和语义校验，收到用户确认后生成 `config_hash` 并创建一个持续 Goal。预设、页面文案、选择器、停留参数与停止信号都放在 `config/`；秘密不进入配置。默认权限全部开启，但必须收到明确确认，且动作仍受实际比例和总上限控制。
 
@@ -12,6 +14,7 @@ No Swipe 是一个面向抖音推荐流测试的本地 Codex 插件，内置 `do
 npm test
 npm run check
 node runtime/src/cli.mjs profile validate tests/fixtures/account-profile.example.json
+node runtime/src/cli.mjs profile list
 node runtime/src/cli.mjs run validate tests/fixtures/run-config.draft.example.json
 ```
 

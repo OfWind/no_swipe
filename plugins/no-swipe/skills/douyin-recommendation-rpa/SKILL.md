@@ -24,12 +24,14 @@ Attach to the user's logged-in Douyin tab. The first browser action is to open t
 
 1. Use the visible account/avatar/profile entry; do not guess a private URL.
 2. Read the visible nickname and Douyin ID from that homepage.
-3. Build `account_ref` from the visible Douyin ID and resolve `.no-swipe/accounts/`.
+3. Build `account_ref` from the visible Douyin ID and resolve only that account under `.no-swipe/accounts/`.
 4. Stay on the homepage until account resolution and preset confirmation finish.
 
 Stop before feed actions when identity is unreliable, the resolved account differs from the visible account, or a verification/access-limit page appears.
 
-One Douyin account has one logical `AccountProfile`. Reuse its current revision without asking the persona again. A user-requested persona change creates the next revision under the same `profile_id`.
+Treat the authenticated No Swipe user and Douyin accounts as a 1:n relationship: one email-authenticated No Swipe user may bind multiple Douyin accounts. Keep one hashed account directory and one logical `AccountProfile` per `account_ref`; binding or selecting another Douyin account creates or resolves its sibling directory and never replaces, renames, or deletes an existing account directory. Run `node ../../runtime/src/cli.mjs profile list --data-dir .no-swipe` when the local bindings need auditing. Do not put the login email in `account_ref` or local profile files.
+
+Reuse the current revision for the visible Douyin account without asking the persona again. A user-requested persona change creates the next revision under that account's same `profile_id`. Switching Douyin accounts selects another stored profile; it is not a profile update.
 
 ## 2. Ask for one compact confirmation
 
@@ -109,6 +111,7 @@ Do not ask the user to type `/goal`. If Goal tools are unavailable, do not claim
 
 Return to the recommendation feed only after confirmation. Follow the versioned profile snapshot:
 
+- Apply a configured short-video rule before topic, like-count, creator-profile, completion, or positive-interaction handling. For the preset, a reliably measured video duration of 60 seconds or less enters the immediate lane: attempt not interested only when the confirmed authorization, quota, cap, and page state all allow it; otherwise swipe immediately. Do not wait, visit the creator homepage, or allocate like, favorite, comment, follow, or completion actions. When duration is missing or unreliable, continue through the ordinary rules rather than inferring a short video.
 - Negative lane or excluded creator type: click not interested only when the classification is reliable.
 - Other lanes: treat as watchable without requiring a positive keyword hit.
 - Visible likes below the configured threshold: swipe directly unless visible feed time or the creator's work list confirms the video is newly published.

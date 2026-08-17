@@ -144,8 +144,9 @@ function requireDateTime(value, pathName, issues) {
 }
 
 function validateContentRules(rules, pathName, issues) {
-  const keys = ["minimum_like_count", "below_minimum_behavior", "recent_evidence_sources", "recent_definition"];
-  if (!requireExactKeys(rules, keys, keys, pathName, issues)) return;
+  const required = ["minimum_like_count", "below_minimum_behavior", "recent_evidence_sources", "recent_definition"];
+  const keys = [...required, "short_video_max_duration_seconds", "short_video_behavior"];
+  if (!requireExactKeys(rules, keys, required, pathName, issues)) return;
   requireInteger(rules.minimum_like_count, `${pathName}.minimum_like_count`, issues, 0);
   if (!["skip", "skip_unless_recent"].includes(rules.below_minimum_behavior)) add(issues, `${pathName}.below_minimum_behavior`, "必须是 skip 或 skip_unless_recent");
   requireStringArray(rules.recent_evidence_sources, `${pathName}.recent_evidence_sources`, issues, { minimum: 1 });
@@ -153,6 +154,17 @@ function validateContentRules(rules, pathName, issues) {
     if (!["feed_published_at", "creator_profile_video_list"].includes(source)) add(issues, `${pathName}.recent_evidence_sources`, `不支持 ${source}`);
   }
   requireString(rules.recent_definition, `${pathName}.recent_definition`, issues);
+  const hasShortVideoMax = rules.short_video_max_duration_seconds !== undefined;
+  const hasShortVideoBehavior = rules.short_video_behavior !== undefined;
+  if (hasShortVideoMax !== hasShortVideoBehavior) {
+    add(issues, pathName, "短视频时长上限与处理方式必须同时提供");
+  }
+  if (hasShortVideoMax) {
+    requireInteger(rules.short_video_max_duration_seconds, `${pathName}.short_video_max_duration_seconds`, issues, 1);
+    if (!["skip", "not_interested_or_skip"].includes(rules.short_video_behavior)) {
+      add(issues, `${pathName}.short_video_behavior`, "必须是 skip 或 not_interested_or_skip");
+    }
+  }
 }
 
 function validateCreatorRules(rules, pathName, issues) {
@@ -521,6 +533,28 @@ export async function resolveAccountProfile(accountRef, { dataDir = ".no-swipe" 
     if (error?.code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function listAccountProfiles({ dataDir = ".no-swipe" } = {}) {
+  const accountsDir = path.resolve(dataDir, "accounts");
+  let entries;
+  try {
+    entries = await fs.readdir(accountsDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+  const profiles = [];
+  for (const entry of entries.filter((item) => item.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    const currentPath = path.join(accountsDir, entry.name, "current.json");
+    const profile = await readJson(currentPath);
+    validateAccountProfile(profile);
+    if (accountDirectory(dataDir, profile.account_ref) !== path.join(accountsDir, entry.name)) {
+      throw new Error(`账号目录 ${entry.name} 与 current.json 的 account_ref 不一致`);
+    }
+    profiles.push(profile);
+  }
+  return profiles.sort((left, right) => left.account_ref.localeCompare(right.account_ref));
 }
 
 export async function bindAccountProfile(profile, { dataDir = ".no-swipe" } = {}) {

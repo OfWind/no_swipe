@@ -71,6 +71,8 @@ No Swipe 将从“一个包含大量固定实验参数的单体 Skill”重构�
 
 Skill 先解析当前登录的抖音账号，并使用不含凭据的稳定 `account_ref` 查找绑定画像。
 
+一个通过邮箱认证的 No Swipe 用户可以绑定多个抖音账号。每个 `account_ref` 使用 `.no-swipe/accounts/` 下独立的哈希目录；切换或新增抖音账号只选择或创建对应目录，不覆盖其他账号。登录邮箱只用于 No Swipe 身份认证，不写入 `account_ref` 或本地画像文件。
+
 - 已绑定：加载该账号当前生效的画像 revision，不重新询问正向主题、排除主题或边界规则。
 - 未绑定：仅在首次建档时询问画像名称、正向主题、排除主题、边界主题及必要示例；确认后绑定到该账号。
 - 用户主动修改画像：创建新 revision 并设为该账号当前版本；旧运行继续引用原 revision。
@@ -80,6 +82,7 @@ Skill 先解析当前登录的抖音账号，并使用不含凭据的稳定 `acc
 逻辑关系为：
 
 ```text
+NoSwipeUser 1 -- N DouyinAccount
 DouyinAccount 1 -- 1 AccountProfile
 AccountProfile 1 -- N AccountProfileRevision
 Run N -- 1 AccountProfileRevisionSnapshot

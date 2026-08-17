@@ -6,6 +6,7 @@ import {
   computeConfigHash,
   confirmRunConfig,
   createProfileSnapshot,
+  listAccountProfiles,
   materializeOnboardingPreset,
   readJson,
   resolveAccountProfile,
@@ -24,6 +25,7 @@ function usage() {
     "  node runtime/src/cli.mjs profile validate <profile.json>",
     "  node runtime/src/cli.mjs profile snapshot <profile.json>",
     "  node runtime/src/cli.mjs profile bind <profile.json> [--data-dir .no-swipe]",
+    "  node runtime/src/cli.mjs profile list [--data-dir .no-swipe]",
     "  node runtime/src/cli.mjs profile resolve <account-ref> [--data-dir .no-swipe]",
     "  node runtime/src/cli.mjs profile update <profile.json> [--data-dir .no-swipe]",
     "  node runtime/src/cli.mjs preset validate <preset.json>",
@@ -41,12 +43,13 @@ function option(args, name) {
 
 async function main(args) {
   const [resource, command, filePath] = args;
-  if (!resource || !command || !filePath || args.includes("--help")) {
+  const fileRequired = !(resource === "profile" && command === "list");
+  if (!resource || !command || (fileRequired && !filePath) || args.includes("--help")) {
     process.stdout.write(`${usage()}\n`);
     return resource ? 0 : 2;
   }
   const dataDir = option(args, "--data-dir") || ".no-swipe";
-  const value = resource === "profile" && command === "resolve" ? null : await readJson(filePath);
+  const value = resource === "profile" && ["resolve", "list"].includes(command) ? null : await readJson(filePath);
   if (resource === "profile" && command === "validate") {
     validateAccountProfile(value);
     process.stdout.write(`${JSON.stringify({ ok: true, kind: "AccountProfile", file: filePath })}\n`);
@@ -59,6 +62,11 @@ async function main(args) {
   if (resource === "profile" && command === "bind") {
     const result = await bindAccountProfile(value, { dataDir });
     process.stdout.write(`${JSON.stringify({ ok: true, account_ref: value.account_ref, profile_id: value.profile_id, revision: value.revision, current: result.currentPath })}\n`);
+    return 0;
+  }
+  if (resource === "profile" && command === "list") {
+    const profiles = await listAccountProfiles({ dataDir });
+    process.stdout.write(`${JSON.stringify({ ok: true, count: profiles.length, profiles }, null, 2)}\n`);
     return 0;
   }
   if (resource === "profile" && command === "resolve") {
