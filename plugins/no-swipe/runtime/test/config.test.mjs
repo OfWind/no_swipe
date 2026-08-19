@@ -20,9 +20,11 @@ import {
 } from "../src/config.mjs";
 import {
   createDouyinRunner,
+  restoreRunnerStateFromObservations,
   restoreRunnerStateFromQueue,
   selectAuthorProfileHref,
 } from "../../skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs";
+import { createCollectorClient } from "../../skills/douyin-recommendation-rpa/scripts/collector_client.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = async (relative) => JSON.parse(await fs.readFile(path.join(ROOT, relative), "utf8"));
@@ -326,6 +328,127 @@ test("runner restores action caps and creator counts from the durable queue", as
     assert.equal(restored.creatorCounts.get("creator-a"), 1);
     assert.equal(restored.profileCheckedAuthors.has("creator-a"), true);
     assert.equal(restored.profileSampledAuthors.has("creator-a"), true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("runner persists through collector and restores counters from SQLite", async () => {
+  const draft = await read("tests/fixtures/run-config.draft.example.json");
+  const confirmed = confirmRunConfig(draft, {
+    confirmedBy: "user",
+    confirmedAt: "2026-08-13T08:00:00.000Z",
+  });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "no-swipe-store-"));
+  const dbPath = path.join(directory, "facts.sqlite");
+  try {
+    const client = createCollectorClient({ dbPath });
+    await client.start({
+      target: confirmed.goal.observed_target,
+      allVideos: true,
+      forceNew: true,
+    });
+    const recorded = await client.record({
+      run_id: confirmed.run_id,
+      config_hash: confirmed.config_hash,
+      is_relevant: true,
+      feed_index: 1,
+      observed_at: "2026-08-19T12:00:00Z",
+      author: "creator-a",
+      action: "not_interested",
+      user_commented: true,
+      user_followed: true,
+      profile_check_attempted: 1,
+      rpa_feedback: {
+        relevance_level: "high",
+        profile_check: { enabled: true, sampled: true },
+      },
+    });
+    assert.equal(recorded.ok, true);
+    const dumped = await client.runnerState({
+      runId: confirmed.run_id,
+      configHash: confirmed.config_hash,
+    });
+    const restored = restoreRunnerStateFromObservations(dumped.observations, confirmed);
+    assert.deepEqual(restored.counters, {
+      comments: 1,
+      follows: 1,
+      notInterested: 1,
+      profileVisits: 1,
+    });
+    const synced = await client.sync();
+    assert.equal(synced.local.observed, 1);
+    assert.equal(synced.local.pending, 1);
+    assert.equal((await fs.readdir(directory)).some((name) => name.endsWith(".csv")), false);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("createDouyinRunner starts a collector session and does not require queuePath", async () => {
+  const draft = await read("tests/fixtures/run-config.draft.example.json");
+  const confirmed = confirmRunConfig(draft, {
+    confirmedBy: "user",
+    confirmedAt: "2026-08-13T08:00:00.000Z",
+  });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "no-swipe-runner-start-"));
+  const calls = [];
+  try {
+    const runner = await createDouyinRunner({
+      tab: {},
+      runConfig: confirmed,
+      activeAccountRef: confirmed.account_ref,
+      outputDir: directory,
+      quotaPath: path.join(directory, "quota.json"),
+      collectorClient: {
+        start: async (args) => {
+          calls.push(["start", args]);
+          return { ok: true, target: 50, count_mode: "observed" };
+        },
+        runnerState: async () => ({ observations: [] }),
+        record: async (observation) => {
+          calls.push(["record", observation]);
+          return { ok: true };
+        },
+      },
+    });
+    assert.equal(calls[0][0], "start");
+    assert.equal(calls[0][1].allVideos, true);
+    assert.equal(typeof runner.processOne, "function");
+    assert.equal(runner.state.dbPath.endsWith("douyin_rpa_session.sqlite"), true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("createDouyinRunner refuses to write into a stale session with a different target", async () => {
+  const draft = await read("tests/fixtures/run-config.draft.example.json");
+  const confirmed = confirmRunConfig(draft, {
+    confirmedBy: "user",
+    confirmedAt: "2026-08-13T08:00:00.000Z",
+  });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "no-swipe-stale-session-"));
+  const calls = [];
+  try {
+    await assert.rejects(
+      createDouyinRunner({
+        tab: {},
+        runConfig: confirmed,
+        activeAccountRef: confirmed.account_ref,
+        outputDir: directory,
+        quotaPath: path.join(directory, "quota.json"),
+        collectorClient: {
+          start: async (args) => {
+            calls.push(["start", args]);
+            return { ok: true, target: 100, count_mode: "observed" };
+          },
+          runnerState: async () => ({ observations: [] }),
+          record: async () => ({ ok: true }),
+        },
+      }),
+      /未结束的会话.*不一致/,
+    );
+    assert.equal(calls.some(([name]) => name === "record"), false);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

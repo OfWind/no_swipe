@@ -77,6 +77,18 @@ test("skill preserves a one-to-many No Swipe user to Douyin account registry", a
   assert.match(skill, /Do not put the login email in `account_ref`/);
 });
 
+test("skill keeps collector record and MCP drain out of the feed loop", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  assert.match(skill, /`processOne` commits each observation to SQLite and its durable outbox/);
+  assert.match(skill, /Do not call collector `record`/);
+  assert.match(skill, /do not inspect `mcp_upload` during the feed loop/);
+  assert.match(skill, /collector `sync --force`/);
+  assert.doesNotMatch(skill, /After every collector `start`, `record`, and `finish`/);
+});
+
 test("skill treats CSV and Excel as on-demand exports from SQLite", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),

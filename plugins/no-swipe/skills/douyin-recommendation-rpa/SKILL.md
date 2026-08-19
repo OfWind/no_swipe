@@ -120,7 +120,7 @@ Return to the recommendation feed only after confirmation. Follow the versioned 
 
 Profile inspection is evidence collection, not a quota action. Return to the same feed item or a reliably identified next item before continuing.
 
-Use `createDouyinRunner()` from `scripts/douyin_browser_runner.mjs` with the confirmed `runConfig`, verified `activeAccountRef`, and a `resolveProfileEvidence` callback. While the author homepage is visible, that callback must return visible `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` evidence; use `null` rather than guessing. Legacy Test5/6/7 names carry no behavior or permission.
+Use `createDouyinRunner()` from `scripts/douyin_browser_runner.mjs` with the confirmed `runConfig`, verified `activeAccountRef`, and a `resolveProfileEvidence` callback. While the author homepage is visible, that callback must return visible `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` evidence; use `null` rather than guessing. Legacy Test5/6/7 names carry no behavior or permission. `processOne` commits each observation to SQLite and its durable outbox before returning. Do not call collector `record`, `mcp-next`, or `mcp-ack` during the feed loop, and do not inspect `mcp_upload` during the feed loop.
 
 Runtime gates remain mandatory:
 
@@ -133,27 +133,31 @@ Runtime gates remain mandatory:
 
 Persist each observation with `run_id`, `account_ref`, `config_hash`, profile revision/hash, and feed sequence before moving on. Resume only when the saved state's config hash matches.
 
-The collector and remote upload are separate durability stages. Every
+The runner and remote upload are separate durability stages. Every
 observation must first be committed to SQLite and its durable outbox; the
 browser loop must not wait for a remote request before moving to the next
 feed item. Do not write CSV or Excel during collection. When the user asks
 to inspect or deliver data, export from SQLite with collector `export`.
 
-After every collector `start`, `record`, and `finish` result, inspect `mcp_upload`:
+Do not call collector `record` and do not inspect `mcp_upload` during the feed loop.
+Read only summary counts from collector `sync` or `status`, for example local
+persisted versus cloud synced. Codex does not choose batch size, retry, or
+queue draining during browsing.
 
-1. `status=deferred` means the durable queue has fewer than 10 due records and its oldest record is younger than 60 seconds. Continue the browser loop without uploading.
-2. `status=ready` means the queue reached 10 due records, the oldest due record reached 60 seconds, or a forced lifecycle flush was requested. Call the plugin's `ingest_observation_batch` MCP tool with `mcp_upload.arguments` exactly.
+At pause, page/CDP anomaly, handoff, or finish, run collector `sync --force`
+once and act only as the MCP pipe:
+
+1. `status=deferred` or `status=idle` means stop draining.
+2. `status=ready` means call the plugin's `ingest_observation_batch` MCP tool with `mcp_upload.arguments` exactly.
 3. On a successful tool result, run collector `mcp-ack` with one JSON object containing the emitted `batch_record_ids` and the tool's structured response under `response`.
-4. Run collector `mcp-next` and repeat while it returns `status=ready`; stop the drain loop when it returns `status=deferred` or `status=idle`.
+4. Run collector `sync --force` again while it returns `status=ready`.
 
-Before pausing, handling a page/CDP anomaly, closing or reopening Douyin,
-handing the task off, or finishing, force a partial-batch flush with
-`mcp-next --force`. For backlog recovery, pause feed actions and drain bounded
-batches with `mcp-next --batch-size 100 --min-batch-size 1 --force` when the
-queue has at least 100 pending records or its oldest pending record exceeds 10
-minutes. Each request must still stay within the 400 KB payload limit.
+For backlog recovery, pause feed actions and drain bounded batches with
+`sync --force --batch-size 100 --min-batch-size 1` when `local.pending` is at
+least 100 or the oldest pending record exceeds 10 minutes. Each request must
+still stay within the 400 KB payload limit.
 
-The MCP connection owns authentication and the server verifies its access token again on every MCP request; keep OAuth tokens out of local commands and files. A tool failure leaves the outbox pending for retry. Require `pending=0` at forced lifecycle boundaries and before completing the Goal, rather than after every observation; review every `dead` record explicitly before completing the Goal. The legacy direct `auth-login` and `upload` commands are compatibility-only and are not part of the installed-plugin flow.
+The MCP connection owns authentication and the server verifies its access token again on every MCP request; keep OAuth tokens out of local commands and files. A tool failure leaves the outbox pending for retry. Require `local.pending=0` at those lifecycle boundaries and before completing the Goal, rather than after every observation; review every `dead` record explicitly before completing the Goal. The legacy direct `auth-login` and `upload` commands are compatibility-only and are not part of the installed-plugin flow.
 
 Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source. CSV and Excel are on-demand exports, not live copies.
 

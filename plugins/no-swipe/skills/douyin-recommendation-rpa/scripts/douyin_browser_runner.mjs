@@ -7,6 +7,7 @@ import {
   quotaConfigFromRunConfig,
   validateRunConfig,
 } from "../../../runtime/src/config.mjs";
+import { createCollectorClient } from "./collector_client.mjs";
 
 const sleep = (tab, ms) => tab.playwright.waitForTimeout(ms);
 
@@ -627,13 +628,43 @@ async function loadOrCreateQuotaPolicy(quotaPath, runConfig) {
   }
 }
 
-export async function restoreRunnerStateFromQueue(queuePath, runConfig) {
-  const restored = {
+export function emptyRunnerState() {
+  return {
     counters: { comments: 0, follows: 0, notInterested: 0, profileVisits: 0 },
     creatorCounts: new Map(),
     profileCheckedAuthors: new Set(),
     profileSampledAuthors: new Set(),
   };
+}
+
+export function applyObservationToRunnerState(observation, runConfig, restored = emptyRunnerState()) {
+  if (observation.run_id !== runConfig.run_id) return restored;
+  if (observation.config_hash !== runConfig.config_hash) {
+    throw new Error("stored observation 与 RunConfig 哈希不一致，拒绝恢复");
+  }
+  restored.counters.comments += Number(observation.user_commented === true);
+  restored.counters.follows += Number(observation.user_followed === true);
+  restored.counters.notInterested += Number(
+    observation.action === "not_interested" || observation.rpa_feedback?.not_interested?.success === true,
+  );
+  restored.counters.profileVisits += Number(observation.profile_check_attempted === 1 || observation.profile_check_attempted === true);
+  const author = String(observation.author || "").trim();
+  if (author && observation.rpa_feedback?.relevance_level === "high") {
+    restored.creatorCounts.set(author, (restored.creatorCounts.get(author) || 0) + 1);
+    if (observation.rpa_feedback?.profile_check?.enabled) restored.profileCheckedAuthors.add(author);
+    if (observation.rpa_feedback?.profile_check?.sampled) restored.profileSampledAuthors.add(author);
+  }
+  return restored;
+}
+
+export function restoreRunnerStateFromObservations(observations, runConfig) {
+  const restored = emptyRunnerState();
+  for (const observation of observations) applyObservationToRunnerState(observation, runConfig, restored);
+  return restored;
+}
+
+export async function restoreRunnerStateFromQueue(queuePath, runConfig) {
+  const restored = emptyRunnerState();
   let source;
   try {
     source = await fs.readFile(queuePath, "utf8");
@@ -649,24 +680,25 @@ export async function restoreRunnerStateFromQueue(queuePath, runConfig) {
     } catch {
       throw new Error(`queue 第 ${index + 1} 行不是有效 JSON，拒绝在不可靠状态下恢复`);
     }
-    if (observation.run_id !== runConfig.run_id) continue;
-    if (observation.config_hash !== runConfig.config_hash) {
+    try {
+      applyObservationToRunnerState(observation, runConfig, restored);
+    } catch {
       throw new Error(`queue 第 ${index + 1} 行与 RunConfig 哈希不一致，拒绝恢复`);
-    }
-    restored.counters.comments += Number(observation.user_commented === true);
-    restored.counters.follows += Number(observation.user_followed === true);
-    restored.counters.notInterested += Number(
-      observation.action === "not_interested" || observation.rpa_feedback?.not_interested?.success === true,
-    );
-    restored.counters.profileVisits += Number(observation.profile_check_attempted === 1 || observation.profile_check_attempted === true);
-    const author = String(observation.author || "").trim();
-    if (author && observation.rpa_feedback?.relevance_level === "high") {
-      restored.creatorCounts.set(author, (restored.creatorCounts.get(author) || 0) + 1);
-      if (observation.rpa_feedback?.profile_check?.enabled) restored.profileCheckedAuthors.add(author);
-      if (observation.rpa_feedback?.profile_check?.sampled) restored.profileSampledAuthors.add(author);
     }
   }
   return restored;
+}
+
+export async function restoreRunnerStateFromStore(dbPath, runConfig, { queuePath, collector } = {}) {
+  const client = collector || createCollectorClient({ dbPath });
+  const dumped = await client.runnerState({
+    runId: runConfig.run_id,
+    configHash: runConfig.config_hash,
+  });
+  const observations = Array.isArray(dumped.observations) ? dumped.observations : [];
+  if (observations.length > 0) return restoreRunnerStateFromObservations(observations, runConfig);
+  if (queuePath) return restoreRunnerStateFromQueue(queuePath, runConfig);
+  return emptyRunnerState();
 }
 
 export async function createDouyinRunner({
@@ -675,7 +707,9 @@ export async function createDouyinRunner({
   activeAccountRef,
   outputDir,
   quotaPath,
-  queuePath,
+  queuePath = "",
+  dbPath = "",
+  collectorClient = null,
   createCommentText = null,
   approveComment = null,
   resolveProfileEvidence = null,
@@ -685,7 +719,7 @@ export async function createDouyinRunner({
   if (!activeAccountRef || activeAccountRef !== runConfig.account_ref) {
     throw new Error(`当前浏览器账号 ${activeAccountRef || "<未识别>"} 与 RunConfig 绑定账号 ${runConfig.account_ref} 不一致，已在页面操作前停止。`);
   }
-  for (const [name, value] of Object.entries({ outputDir, quotaPath, queuePath })) {
+  for (const [name, value] of Object.entries({ outputDir, quotaPath })) {
     if (typeof value !== "string" || value.trim() === "") throw new Error(`${name} 必须是非空路径`);
   }
   const platformConfig = suppliedPlatformConfig || await loadPlatformConfig(runConfig.versions.adapter);
@@ -704,7 +738,23 @@ export async function createDouyinRunner({
   if (profileEvidenceRequired && typeof resolveProfileEvidence !== "function") {
     throw new Error("当前画像需要创作者主页证据，必须提供 resolveProfileEvidence 回调后才能运行。");
   }
-  const restored = await restoreRunnerStateFromQueue(queuePath, runConfig);
+  const resolvedDbPath = dbPath || path.join(outputDir, "douyin_rpa_session.sqlite");
+  const collector = collectorClient || createCollectorClient({ dbPath: resolvedDbPath });
+  await fs.mkdir(outputDir, { recursive: true });
+  if (queuePath) await fs.mkdir(path.dirname(path.resolve(queuePath)), { recursive: true });
+  const expectedTarget = runConfig.goal.relevant_target ?? runConfig.goal.observed_target;
+  const expectedCountMode = runConfig.goal.relevant_target == null ? "observed" : "relevant";
+  const started = await collector.start({
+    target: expectedTarget,
+    allVideos: runConfig.goal.relevant_target == null,
+  });
+  // start 会复用未结束的旧会话；旧会话的目标与本次 RunConfig 不一致时继续写会把两次任务的数据混在一起。
+  if (Number(started?.target) !== expectedTarget || started?.count_mode !== expectedCountMode) {
+    throw new Error(
+      `collector 存在未结束的会话(target=${started?.target}, count_mode=${started?.count_mode}),与本次 RunConfig(target=${expectedTarget}, count_mode=${expectedCountMode})不一致,已在写入前停止。请先 finish 旧会话或确认后再运行。`,
+    );
+  }
+  const restored = await restoreRunnerStateFromStore(resolvedDbPath, runConfig, { queuePath, collector });
   const policy = await loadOrCreateQuotaPolicy(quotaPath, runConfig);
   const rng = makeRng(runConfig.run_id);
   const creatorCounts = restored.creatorCounts;
@@ -716,6 +766,8 @@ export async function createDouyinRunner({
     outputDir,
     quotaPath,
     queuePath,
+    dbPath: resolvedDbPath,
+    collector,
     policy,
     rng,
     counters: restored.counters,
@@ -728,8 +780,6 @@ export async function createDouyinRunner({
     profileSampledAuthors: restored.profileSampledAuthors,
     queueCommitted: false,
   };
-  await fs.mkdir(outputDir, { recursive: true });
-  await fs.mkdir(path.dirname(path.resolve(queuePath)), { recursive: true });
 
   async function processOneOnce(feedIndex) {
     state.queueCommitted = false;
@@ -995,11 +1045,11 @@ export async function createDouyinRunner({
       user_action_result: userActionResult,
       rpa_feedback: feedback,
     };
-    await fs.appendFile(queuePath, `${JSON.stringify(observation)}\n`, "utf8");
+    await state.collector.record(observation);
     state.queueCommitted = true;
     // Commit policy state only after the observation is durable. If the RPA
-    // process is interrupted before the queue append, the in-memory allocation
-    // disappears with the process and cannot consume a future quota slot.
+    // process is interrupted before SQLite/outbox commit, the in-memory
+    // allocation disappears with the process and cannot consume a future quota slot.
     await state.policy.saveState(quotaPath);
     return { ...observation, next_id: transition.next?.id || "", stop: Boolean(profileCheck.stop_required || !transition.transitionOk) };
   }

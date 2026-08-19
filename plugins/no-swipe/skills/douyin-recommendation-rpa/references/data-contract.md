@@ -134,7 +134,7 @@ No Swipe 认证用户与抖音账号是 1:n。服务端用认证后的用户 ID 
 
 ## 上传语义
 
-SQLite 是本地事实源；每条观察与对应 outbox 项在同一事务提交。本地完整观察即上传内容，不另做脱敏投影。CSV 和 Excel 只在用户要求查看或交付时从 SQLite 导出，不进入采集热路径。payload 递归出现 `cookie`、`authorization`、`access_token`、`refresh_token`、`password`、`secret` 等凭据字段时，服务端拒绝该记录。
+SQLite 是本地事实源；Runner 在每条 `processOne` 内把观察与对应 outbox 项在同一事务提交。本地完整观察即上传内容，不另做脱敏投影。CSV 和 Excel 只在用户要求查看或交付时从 SQLite 导出，不进入采集热路径。刷流循环不调用 collector `record`，也不根据 `mcp_upload` 做批次判断。payload 递归出现 `cookie`、`authorization`、`access_token`、`refresh_token`、`password`、`secret` 等凭据字段时，服务端拒绝该记录。
 
 上传请求最多包含 100 条：
 

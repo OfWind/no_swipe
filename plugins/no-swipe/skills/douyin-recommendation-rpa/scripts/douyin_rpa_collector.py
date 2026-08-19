@@ -530,6 +530,26 @@ def command_record(args: argparse.Namespace) -> None:
     print(json.dumps(output, ensure_ascii=False))
 
 
+def session_progress(conn: sqlite3.Connection, session: sqlite3.Row | None) -> dict[str, Any]:
+    upload = queue_counts(conn)
+    if session is None:
+        return {
+            "observed": 0,
+            "relevant": 0,
+            "pending": upload["pending"],
+            "sent": upload["sent"],
+            "dead": upload["dead"],
+        }
+    observed, relevant = counts(conn, session["session_id"])
+    return {
+        "observed": observed,
+        "relevant": relevant,
+        "pending": upload["pending"],
+        "sent": upload["sent"],
+        "dead": upload["dead"],
+    }
+
+
 def command_status(args: argparse.Namespace) -> None:
     conn = db_connect(args.db)
     session = active_session(conn)
@@ -659,6 +679,47 @@ def command_export(args: argparse.Namespace) -> None:
     print(json.dumps(export_csv(conn, args.csv, args.target_csv), ensure_ascii=False))
 
 
+def command_sync(args: argparse.Namespace) -> None:
+    """Return local counts and at most one ready MCP batch. Does not upload."""
+    conn = db_connect(args.db)
+    session = active_session(conn)
+    if session is None:
+        session = conn.execute("SELECT * FROM sessions ORDER BY started_epoch DESC LIMIT 1").fetchone()
+    output = {
+        "ok": True,
+        "local": session_progress(conn, session),
+        "mcp_upload": prepare_mcp_batch(
+            conn,
+            batch_size=args.batch_size,
+            min_batch_size=args.min_batch_size,
+            max_wait_seconds=args.max_wait_seconds,
+            force=args.force,
+            heartbeat_session_id=None if session is None else session["session_id"],
+        ),
+    }
+    print(json.dumps(output, ensure_ascii=False))
+
+
+def command_runner_state(args: argparse.Namespace) -> None:
+    """Return stored browser observations so the runner can restore counters."""
+    conn = db_connect(args.db)
+    rows = conn.execute("SELECT raw_json FROM observations ORDER BY feed_index, created_at").fetchall()
+    observations: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        try:
+            observation = json.loads(row["raw_json"] or "{}")
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"observation {index} raw_json is not valid JSON") from exc
+        if not isinstance(observation, dict):
+            raise SystemExit(f"observation {index} raw_json must be an object")
+        if args.run_id and observation.get("run_id") not in {None, args.run_id}:
+            continue
+        if args.config_hash and observation.get("config_hash") not in {None, args.config_hash}:
+            raise SystemExit("stored observation config_hash does not match the confirmed run")
+        observations.append(observation)
+    print(json.dumps({"ok": True, "observations": observations}, ensure_ascii=False))
+
+
 def command_sample_dwell(args: argparse.Namespace) -> None:
     print(json.dumps({
         "dwell_seconds": sample_dwell_seconds(args.relevant, args.score),
@@ -778,6 +839,18 @@ def build_parser() -> argparse.ArgumentParser:
     rebuild = sub.add_parser("rebuild", help="alias for export; does not run during collection")
     add_export_path_args(rebuild)
     rebuild.set_defaults(func=command_export)
+
+    sync = sub.add_parser("sync", help="report local counts and at most one ready MCP batch")
+    sync.add_argument("--batch-size", type=int, default=DEFAULT_MCP_BATCH_SIZE)
+    sync.add_argument("--min-batch-size", type=int, default=DEFAULT_MCP_MIN_BATCH_SIZE)
+    sync.add_argument("--max-wait-seconds", type=float, default=DEFAULT_MCP_MAX_WAIT_SECONDS)
+    sync.add_argument("--force", action="store_true", help="flush a partial batch at a lifecycle boundary")
+    sync.set_defaults(func=command_sync)
+
+    runner_state = sub.add_parser("runner-state", help="dump stored observations for runner restore")
+    runner_state.add_argument("--run-id")
+    runner_state.add_argument("--config-hash")
+    runner_state.set_defaults(func=command_runner_state)
 
     dwell = sub.add_parser("sample-dwell", help="sample a bounded normal-distribution dwell time")
     dwell.add_argument("--relevant", action="store_true")
