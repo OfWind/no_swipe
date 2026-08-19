@@ -3,7 +3,6 @@ const MAX_BATCH_SIZE = 100
 // unstable timeouts so oversized requests receive a deterministic response.
 const MAX_BODY_BYTES = 500_000
 const CLIENT_SESSION_KEY = /^[A-Za-z0-9._:-]{1,128}$/
-const RFC3339_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
 const FORBIDDEN_KEYS = new Set([
   "access_token",
   "authorization",
@@ -45,12 +44,6 @@ function containsForbiddenKey(value: unknown): boolean {
   )
 }
 
-function isTimezoneAwareTimestamp(value: unknown): value is string {
-  return typeof value === "string" &&
-    RFC3339_TIMESTAMP.test(value) &&
-    !Number.isNaN(Date.parse(value))
-}
-
 function validateRecord(record: unknown, seen: Set<string>): string | null {
   if (!isObject(record)) return "record must be a JSON object"
 
@@ -61,9 +54,6 @@ function validateRecord(record: unknown, seen: Set<string>): string | null {
   if (seen.has(recordId)) return "duplicate record_id in request"
   seen.add(recordId)
 
-  if (!isTimezoneAwareTimestamp(record.observed_at)) {
-    return "observed_at must be an RFC 3339 timestamp with timezone information"
-  }
   if (!Number.isInteger(record.feed_index) || Number(record.feed_index) < 1) {
     return "feed_index must be a positive integer"
   }
@@ -167,17 +157,8 @@ export async function handleRequest(req: Request): Promise<Response> {
       body.client.plugin_version.length > 64) {
     return jsonResponse({ error: "invalid_client" }, 400)
   }
-  if (!isTimezoneAwareTimestamp(body.started_at)) {
-    return jsonResponse({
-      error: "invalid_started_at",
-      reason: "must include a UTC designator or numeric timezone offset",
-    }, 400)
-  }
-  if (body.finished_at !== null && body.finished_at !== undefined && !isTimezoneAwareTimestamp(body.finished_at)) {
-    return jsonResponse({
-      error: "invalid_finished_at",
-      reason: "must include a UTC designator or numeric timezone offset",
-    }, 400)
+  if (typeof body.started_at !== "string" || body.started_at.length < 1) {
+    return jsonResponse({ error: "invalid_started_at" }, 400)
   }
   if (!Array.isArray(body.records) || body.records.length > MAX_BATCH_SIZE) {
     return jsonResponse({ error: "records_must_be_array", max_batch_size: MAX_BATCH_SIZE }, 400)

@@ -36,7 +36,6 @@ if str(SCRIPT_ROOT) not in sys.path:
 from collector.auth import AuthClient, AuthError
 from collector.config import load_config
 from collector.outbox import ensure_outbox_schema, queue_record, refresh_queued_record
-from collector.timestamps import require_timezone_timestamp
 from collector.uploader import (
     DEFAULT_MCP_BATCH_SIZE,
     DEFAULT_MCP_MAX_WAIT_SECONDS,
@@ -273,10 +272,7 @@ def normalized_record(data: dict[str, Any], session: sqlite3.Row, feed_index: in
     if not relevant:
         target_index = None
     dwell = data.get("dwell_seconds")
-    observed_at = require_timezone_timestamp(
-        str(data.get("observed_at") or now_iso()),
-        "observed_at",
-    )
+    observed_at = str(data.get("observed_at") or now_iso())
     elapsed = data.get("elapsed_seconds")
     if elapsed is None:
         elapsed = max(0.0, time.time() - float(session["started_epoch"]))

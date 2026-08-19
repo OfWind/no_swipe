@@ -70,18 +70,19 @@ class CollectorContractTest(unittest.TestCase):
 
         self.assertTrue(row["observed_at"].endswith("Z"))
 
-    def test_collector_rejects_timezone_less_observed_at(self):
-        with self.assertRaisesRegex(ValueError, "observed_at.*时区"):
-            COLLECTOR.normalized_record(
-                {
-                    "feed_index": 1,
-                    "is_relevant": True,
-                    "observed_at": "2026-08-13T12:00:00",
-                },
-                self.session,
-                1,
-                1,
-            )
+    def test_collector_accepts_timezone_less_observed_at(self):
+        row = COLLECTOR.normalized_record(
+            {
+                "feed_index": 1,
+                "is_relevant": True,
+                "observed_at": "2026-08-13T12:00:00",
+            },
+            self.session,
+            1,
+            1,
+        )
+
+        self.assertEqual(row["observed_at"], "2026-08-13T12:00:00")
 
 
 if __name__ == "__main__":

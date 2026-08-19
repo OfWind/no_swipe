@@ -75,7 +75,7 @@ No Swipe 认证用户与抖音账号是 1:n。服务端用认证后的用户 ID 
 }
 ```
 
-`contract_version` 固定为 `2`。`record_id` 由客户端生成，并与当前用户和会话共同构成服务端幂等键。所有时间戳使用带明确时区的 RFC 3339 格式；接受 UTC `Z` 或数字偏移（例如 `+08:00`、`-05:00`），拒绝没有时区信息的裸本地时间。客户端默认发送 UTC `Z`，Supabase 使用 `timestamptz` 保存绝对时间。面向用户展示时按 `Asia/Shanghai` 转换为北京时间，不把 `+08:00` 作为上传准入条件。
+`contract_version` 固定为 `2`。`record_id` 由客户端生成，并与当前用户和会话共同构成服务端幂等键。上传不校验时间戳时区或格式；时区转换和展示在数据库到前端完成。客户端默认仍发送 UTC `Z`。
 
 `quota_decision.plannedActions` 只表示实验计划。点赞、收藏、评论、关注、不感兴趣和完播的实际结果必须在页面操作或播放器状态得到可靠反馈后，写入对应事实字段或 `user_action_result`。候选不等于已执行；没有对应授权时不得尝试。
 
@@ -143,7 +143,7 @@ SQLite 是本地事实源；Runner 在每条 `processOne` 内把观察与对应 
   "contract_version": 2,
   "session_id": "客户端会话 UUID",
   "client": {
-    "plugin_version": "0.2.2",
+    "plugin_version": "0.2.3",
     "host_fingerprint": "不可逆短哈希"
   },
   "task_config": {},
