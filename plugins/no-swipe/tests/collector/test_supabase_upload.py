@@ -247,7 +247,12 @@ class SupabaseUploadTest(unittest.TestCase):
     def test_mcp_batch_and_ack_complete_the_durable_outbox_cycle(self):
         self.add_record("mcp-record-1")
         batch = uploader.prepare_mcp_batch(self.conn, config=self.config)
+        self.assertEqual(batch["status"], "deferred")
+        self.assertEqual(batch["reason"], "micro_batch_not_due")
+
+        batch = uploader.prepare_mcp_batch(self.conn, config=self.config, force=True)
         self.assertEqual(batch["status"], "ready")
+        self.assertEqual(batch["ready_reason"], "forced")
         self.assertEqual(batch["tool"], "ingest_observation_batch")
         self.assertEqual(batch["batch_record_ids"], ["mcp-record-1"])
         self.assertEqual(batch["arguments"]["records"][0]["record_id"], "mcp-record-1")
@@ -275,7 +280,7 @@ class SupabaseUploadTest(unittest.TestCase):
         )
         self.conn.commit()
 
-        batch = uploader.prepare_mcp_batch(self.conn, config=self.config)
+        batch = uploader.prepare_mcp_batch(self.conn, config=self.config, force=True)
 
         self.assertEqual(
             batch["arguments"]["records"][0]["observed_at"],
@@ -285,6 +290,45 @@ class SupabaseUploadTest(unittest.TestCase):
             "SELECT payload FROM outbox WHERE record_id='legacy-utc-record'"
         ).fetchone()
         self.assertEqual(json.loads(stored["payload"])["observed_at"], "2026-08-13T12:00:00Z")
+
+    def test_mcp_batch_is_ready_when_count_threshold_is_reached(self):
+        for index in range(10):
+            self.add_record(f"count-record-{index}")
+
+        batch = uploader.prepare_mcp_batch(self.conn, config=self.config)
+
+        self.assertEqual(batch["status"], "ready")
+        self.assertEqual(batch["ready_reason"], "count_threshold")
+        self.assertEqual(len(batch["batch_record_ids"]), 10)
+
+    def test_mcp_batch_is_ready_when_oldest_record_reaches_max_wait(self):
+        self.add_record("aged-record")
+        self.conn.execute(
+            "UPDATE outbox SET created_at=? WHERE record_id='aged-record'",
+            (time.time() - 61,),
+        )
+        self.conn.commit()
+
+        batch = uploader.prepare_mcp_batch(self.conn, config=self.config)
+
+        self.assertEqual(batch["status"], "ready")
+        self.assertEqual(batch["ready_reason"], "age_threshold")
+        self.assertEqual(batch["batch_record_ids"], ["aged-record"])
+
+    def test_small_old_session_does_not_block_ready_new_session(self):
+        self.add_record("old-session-tail")
+        old_session = self.session
+        self.session = COLLECTOR.ensure_session(self.conn, 10, True, "observed")
+        for index in range(10):
+            self.add_record(f"new-session-record-{index}")
+
+        batch = uploader.prepare_mcp_batch(self.conn, config=self.config)
+
+        self.assertEqual(batch["status"], "ready")
+        self.assertEqual(batch["ready_reason"], "count_threshold")
+        self.assertEqual(batch["arguments"]["session_id"], self.session["session_id"])
+        self.assertNotEqual(batch["arguments"]["session_id"], old_session["session_id"])
+        self.assertEqual(len(batch["batch_record_ids"]), 10)
 
     def test_mcp_ack_rejects_ids_outside_the_emitted_batch(self):
         self.add_record("mcp-record-1")

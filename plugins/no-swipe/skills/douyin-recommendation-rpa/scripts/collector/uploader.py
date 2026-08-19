@@ -14,6 +14,9 @@ from .config import ConfigurationError, SupabaseConfig, load_config
 
 MAX_ATTEMPTS = 8
 MAX_REQUEST_BYTES = 400_000
+DEFAULT_MCP_BATCH_SIZE = 10
+DEFAULT_MCP_MIN_BATCH_SIZE = 10
+DEFAULT_MCP_MAX_WAIT_SECONDS = 60.0
 
 
 class UploadHttpError(RuntimeError):
@@ -144,29 +147,73 @@ def queue_counts(conn: sqlite3.Connection) -> dict[str, int]:
 
 def prepare_mcp_batch(
     conn: sqlite3.Connection,
-    batch_size: int = 100,
+    batch_size: int = DEFAULT_MCP_BATCH_SIZE,
     config: SupabaseConfig | None = None,
     heartbeat_session_id: str | None = None,
+    min_batch_size: int = DEFAULT_MCP_MIN_BATCH_SIZE,
+    max_wait_seconds: float = DEFAULT_MCP_MAX_WAIT_SECONDS,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """Return one due outbox batch for the host-managed authenticated MCP tool."""
+    """Return one due outbox batch when the micro-batch policy says it is ready.
+
+    Local persistence is independent of this decision: every observation is
+    already durable in SQLite/outbox before this function is called. The MCP
+    caller can therefore keep collecting while a small, young batch is
+    deferred, and force a flush at lifecycle boundaries.
+    """
     if batch_size < 1 or batch_size > 100:
         raise ValueError("batch_size must be between 1 and 100")
+    if min_batch_size < 1 or min_batch_size > batch_size:
+        raise ValueError("min_batch_size must be between 1 and batch_size")
+    if max_wait_seconds < 0:
+        raise ValueError("max_wait_seconds must be non-negative")
     try:
         config = config or load_config()
     except ConfigurationError as exc:
         return {"status": "disabled", "reason": str(exc), **queue_counts(conn)}
 
-    first = conn.execute(
+    now = time.time()
+    due_sessions = conn.execute(
         """
-        SELECT session_id FROM outbox
+        SELECT
+          session_id,
+          COUNT(*) AS due_count,
+          MIN(created_at) AS oldest_created_at
+        FROM outbox
         WHERE status IN ('pending','failed') AND next_retry_at<=?
-        ORDER BY created_at LIMIT 1
+        GROUP BY session_id
+        ORDER BY oldest_created_at
         """,
-        (time.time(),),
-    ).fetchone()
-    session_id = first["session_id"] if first is not None else heartbeat_session_id
+        (now,),
+    ).fetchall()
+
+    selected = next(
+        (
+            row
+            for row in due_sessions
+            if force
+            or int(row["due_count"]) >= min_batch_size
+            or now - float(row["oldest_created_at"]) >= max_wait_seconds
+        ),
+        None,
+    )
+    if selected is None and due_sessions:
+        oldest = due_sessions[0]
+        oldest_age = max(0.0, now - float(oldest["oldest_created_at"]))
+        return {
+            "status": "deferred",
+            "reason": "micro_batch_not_due",
+            "due_count": int(oldest["due_count"]),
+            "min_batch_size": min_batch_size,
+            "oldest_pending_age_seconds": round(oldest_age, 3),
+            "due_in_seconds": round(max(0.0, max_wait_seconds - oldest_age), 3),
+            **queue_counts(conn),
+        }
+
+    session_id = selected["session_id"] if selected is not None else heartbeat_session_id
     if not session_id:
         return {"status": "idle", **queue_counts(conn)}
+    due_count = int(selected["due_count"]) if selected is not None else 0
 
     rows = conn.execute(
         """
@@ -174,7 +221,7 @@ def prepare_mcp_batch(
         WHERE session_id=? AND status IN ('pending','failed') AND next_retry_at<=?
         ORDER BY created_at LIMIT ?
         """,
-        (session_id, time.time(), batch_size),
+        (session_id, now, batch_size),
     ).fetchall()
     body = _batch_body(conn, config, session_id, rows)
     while len(rows) > 1 and len(_encode_body(body)) > MAX_REQUEST_BYTES:
@@ -191,6 +238,15 @@ def prepare_mcp_batch(
 
     return {
         "status": "ready",
+        "ready_reason": (
+            "heartbeat"
+            if not rows
+            else "forced"
+            if force
+            else "count_threshold"
+            if due_count >= min_batch_size
+            else "age_threshold"
+        ),
         "tool": "ingest_observation_batch",
         "batch_record_ids": [row["record_id"] for row in rows],
         "arguments": body,

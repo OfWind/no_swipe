@@ -133,13 +133,26 @@ Runtime gates remain mandatory:
 
 Persist each observation with `run_id`, `account_ref`, `config_hash`, profile revision/hash, and feed sequence before moving on. Resume only when the saved state's config hash matches.
 
+The collector and remote upload are separate durability stages. Every
+observation must first be committed to SQLite and its durable outbox (with
+CSV/JSONL kept only as mirrors); the browser loop must not wait for a remote
+request before moving to the next feed item.
+
 After every collector `start`, `record`, and `finish` result, inspect `mcp_upload`:
 
-1. When `status=ready`, call the plugin's `ingest_observation_batch` MCP tool with `mcp_upload.arguments` exactly.
-2. On a successful tool result, run collector `mcp-ack` with one JSON object containing the emitted `batch_record_ids` and the tool's structured response under `response`.
-3. Run collector `mcp-next` and repeat until it returns `status=idle` or no batch is currently due.
+1. `status=deferred` means the durable queue has fewer than 10 due records and its oldest record is younger than 60 seconds. Continue the browser loop without uploading.
+2. `status=ready` means the queue reached 10 due records, the oldest due record reached 60 seconds, or a forced lifecycle flush was requested. Call the plugin's `ingest_observation_batch` MCP tool with `mcp_upload.arguments` exactly.
+3. On a successful tool result, run collector `mcp-ack` with one JSON object containing the emitted `batch_record_ids` and the tool's structured response under `response`.
+4. Run collector `mcp-next` and repeat while it returns `status=ready`; stop the drain loop when it returns `status=deferred` or `status=idle`.
 
-The MCP connection owns authentication and the server verifies its access token again on every MCP request; keep OAuth tokens out of local commands and files. A tool failure leaves the outbox pending for retry. Treat synchronization as complete only when the durable queue reports `pending=0`; review every `dead` record explicitly before completing the Goal. The legacy direct `auth-login` and `upload` commands are compatibility-only and are not part of the installed-plugin flow.
+Before pausing, handling a page/CDP anomaly, closing or reopening Douyin,
+handing the task off, or finishing, force a partial-batch flush with
+`mcp-next --force`. For backlog recovery, pause feed actions and drain bounded
+batches with `mcp-next --batch-size 100 --min-batch-size 1 --force` when the
+queue has at least 100 pending records or its oldest pending record exceeds 10
+minutes. Each request must still stay within the 400 KB payload limit.
+
+The MCP connection owns authentication and the server verifies its access token again on every MCP request; keep OAuth tokens out of local commands and files. A tool failure leaves the outbox pending for retry. Require `pending=0` at forced lifecycle boundaries and before completing the Goal, rather than after every observation; review every `dead` record explicitly before completing the Goal. The legacy direct `auth-login` and `upload` commands are compatibility-only and are not part of the installed-plugin flow.
 
 Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source and JSONL/CSV/Excel as exchange or derived outputs.
 

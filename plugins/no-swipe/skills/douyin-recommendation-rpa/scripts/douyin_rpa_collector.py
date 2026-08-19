@@ -36,7 +36,15 @@ from collector.auth import AuthClient, AuthError
 from collector.config import load_config
 from collector.outbox import ensure_outbox_schema, queue_record, refresh_queued_record
 from collector.timestamps import require_timezone_timestamp
-from collector.uploader import apply_mcp_ack, flush_pending, prepare_mcp_batch, queue_counts
+from collector.uploader import (
+    DEFAULT_MCP_BATCH_SIZE,
+    DEFAULT_MCP_MAX_WAIT_SECONDS,
+    DEFAULT_MCP_MIN_BATCH_SIZE,
+    apply_mcp_ack,
+    flush_pending,
+    prepare_mcp_batch,
+    queue_counts,
+)
 
 
 ROOT = SCRIPT_ROOT
@@ -641,7 +649,7 @@ def command_finish(args: argparse.Namespace) -> None:
     }
     output["upload"] = queue_counts(conn)
     output["mcp_upload"] = prepare_mcp_batch(
-        conn, heartbeat_session_id=session["session_id"]
+        conn, heartbeat_session_id=session["session_id"], force=True
     )
     print(json.dumps(output, ensure_ascii=False))
 
@@ -706,7 +714,13 @@ def command_upload(args: argparse.Namespace) -> None:
 
 def command_mcp_next(args: argparse.Namespace) -> None:
     conn = db_connect(args.db)
-    result = prepare_mcp_batch(conn, batch_size=args.batch_size)
+    result = prepare_mcp_batch(
+        conn,
+        batch_size=args.batch_size,
+        min_batch_size=args.min_batch_size,
+        max_wait_seconds=args.max_wait_seconds,
+        force=args.force,
+    )
     print(json.dumps(result, ensure_ascii=False))
 
 
@@ -790,7 +804,10 @@ def build_parser() -> argparse.ArgumentParser:
     upload.set_defaults(func=command_upload)
 
     mcp_next = sub.add_parser("mcp-next", help="emit one durable batch for the authenticated MCP upload tool")
-    mcp_next.add_argument("--batch-size", type=int, default=100)
+    mcp_next.add_argument("--batch-size", type=int, default=DEFAULT_MCP_BATCH_SIZE)
+    mcp_next.add_argument("--min-batch-size", type=int, default=DEFAULT_MCP_MIN_BATCH_SIZE)
+    mcp_next.add_argument("--max-wait-seconds", type=float, default=DEFAULT_MCP_MAX_WAIT_SECONDS)
+    mcp_next.add_argument("--force", action="store_true", help="flush a partial batch at a lifecycle boundary")
     mcp_next.set_defaults(func=command_mcp_next)
 
     mcp_ack = sub.add_parser("mcp-ack", help="apply an MCP upload acknowledgement to the durable outbox")
