@@ -134,9 +134,10 @@ Runtime gates remain mandatory:
 Persist each observation with `run_id`, `account_ref`, `config_hash`, profile revision/hash, and feed sequence before moving on. Resume only when the saved state's config hash matches.
 
 The collector and remote upload are separate durability stages. Every
-observation must first be committed to SQLite and its durable outbox (with
-CSV/JSONL kept only as mirrors); the browser loop must not wait for a remote
-request before moving to the next feed item.
+observation must first be committed to SQLite and its durable outbox; the
+browser loop must not wait for a remote request before moving to the next
+feed item. Do not write CSV or Excel during collection. When the user asks
+to inspect or deliver data, export from SQLite with collector `export`.
 
 After every collector `start`, `record`, and `finish` result, inspect `mcp_upload`:
 
@@ -154,6 +155,6 @@ minutes. Each request must still stay within the 400 KB payload limit.
 
 The MCP connection owns authentication and the server verifies its access token again on every MCP request; keep OAuth tokens out of local commands and files. A tool failure leaves the outbox pending for retry. Require `pending=0` at forced lifecycle boundaries and before completing the Goal, rather than after every observation; review every `dead` record explicitly before completing the Goal. The legacy direct `auth-login` and `upload` commands are compatibility-only and are not part of the installed-plugin flow.
 
-Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source and JSONL/CSV/Excel as exchange or derived outputs.
+Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source. CSV and Excel are on-demand exports, not live copies.
 
 Never store or export cookies, tokens, authorization headers, credentials, or reusable browser-session material.

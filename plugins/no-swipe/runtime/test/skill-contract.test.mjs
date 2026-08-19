@@ -77,6 +77,18 @@ test("skill preserves a one-to-many No Swipe user to Douyin account registry", a
   assert.match(skill, /Do not put the login email in `account_ref`/);
 });
 
+test("skill treats CSV and Excel as on-demand exports from SQLite", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  assert.match(skill, /committed to SQLite and its durable outbox/);
+  assert.match(skill, /Do not write CSV or Excel during collection/);
+  assert.match(skill, /export from SQLite with collector `export`/);
+  assert.match(skill, /CSV and Excel are on-demand exports, not live copies/);
+  assert.doesNotMatch(skill, /CSV\/JSONL kept only as mirrors/);
+});
+
 test("skill prioritizes the confirmed 60-second immediate lane", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),

@@ -24,7 +24,7 @@ node runtime/src/cli.mjs run validate tests/fixtures/run-config.draft.example.js
 
 ChatGPT 订阅登录和 OpenAI API Key 只负责模型访问，不等于 No Swipe 授权。仅使用 API Key 的 Codex CLI 如果没有自动出现登录页，No Swipe skill 会自行调用 `codex mcp login no-swipe`；用户无需输入命令，只需在浏览器完成邮箱验证和授权。授权会被安全复用；卸载插件不会必然撤销服务授权。
 
-`start`、`record`、`finish` 会返回 `mcp_upload` 状态，但本地落盘与远程上传互不阻塞：每条观察先独立提交到 SQLite 和 durable outbox，CSV/JSONL 只是镜像；待上传记录达到 10 条，或最老记录等待满 60 秒时，才返回可上传批次。Codex 使用安装连接的 OAuth token 调用 `ingest_observation_batch`，再把 `accepted`、`duplicated` 和 `rejected` 回写本地 outbox。暂停、页面/CDP 异常、关闭重开、交接及结束前使用 `mcp-next --force` 清空不足 10 条的尾批；积压恢复可暂停浏览器并以最大 100 条、400 KB 的有界批次补传。断网不影响采集，恢复后由 `mcp-next` 继续补传；只有 `accepted` 或 `duplicated` 会标记为已发送。OAuth token 由 Codex 管理，不写入插件目录、SQLite 或导出文件。
+`start`、`record`、`finish` 会返回 `mcp_upload` 状态，但本地落盘与远程上传互不阻塞：每条观察先独立提交到 SQLite 和 durable outbox。CSV 和 Excel 不在采集时写入；用户要查看或交付时，再用 collector `export` 从 SQLite 生成。待上传记录达到 10 条，或最老记录等待满 60 秒时，才返回可上传批次。Codex 使用安装连接的 OAuth token 调用 `ingest_observation_batch`，再把 `accepted`、`duplicated` 和 `rejected` 回写本地 outbox。暂停、页面/CDP 异常、关闭重开、交接及结束前使用 `mcp-next --force` 清空不足 10 条的尾批；积压恢复可暂停浏览器并以最大 100 条、400 KB 的有界批次补传。断网不影响采集，恢复后由 `mcp-next` 继续补传；只有 `accepted` 或 `duplicated` 会标记为已发送。OAuth token 由 Codex 管理，不写入插件目录、SQLite 或导出文件。
 
 ## 安全边界
 

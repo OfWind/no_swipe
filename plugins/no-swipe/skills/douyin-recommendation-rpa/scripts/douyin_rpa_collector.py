@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Incremental timer and recorder for a Douyin recommendation-feed RPA run.
 
-The browser/RPA layer supplies one JSON observation at a time.  This module
-keeps the timer durable in SQLite, mirrors every observation to CSV, and can
-resume an active session after a process or browser interruption.
+The browser/RPA layer supplies one JSON observation at a time. This module
+keeps the timer and observations durable in SQLite with a transactional
+outbox, and can resume an active session after a process or browser
+interruption. CSV and Excel are generated only when a user explicitly exports.
 
 Examples:
     python3 douyin_rpa_collector.py start --target 100
@@ -228,21 +229,6 @@ def db_connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def csv_header_if_needed(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists() or path.stat().st_size == 0:
-        with path.open("w", newline="", encoding="utf-8-sig") as handle:
-            csv.DictWriter(handle, fieldnames=CSV_FIELDS).writeheader()
-
-
-def append_csv(path: Path, row: dict[str, Any]) -> None:
-    csv_header_if_needed(path)
-    with path.open("a", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS, extrasaction="ignore")
-        writer.writerow({field: row.get(field, "") for field in CSV_FIELDS})
-        handle.flush()
-
-
 def active_session(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT * FROM sessions WHERE status='active' ORDER BY started_epoch DESC LIMIT 1"
@@ -382,8 +368,7 @@ def insert_record(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
     conn.commit()
 
 
-def rebuild_csv_exports(conn: sqlite3.Connection, csv_path: Path, target_csv_path: Path) -> None:
-    """Re-index target rows and rebuild both CSV mirrors from SQLite."""
+def reindex_target_rows(conn: sqlite3.Connection) -> None:
     session_rows = conn.execute("SELECT session_id FROM sessions ORDER BY started_epoch").fetchall()
     for session_row in session_rows:
         target_index = 0
@@ -403,14 +388,30 @@ def rebuild_csv_exports(conn: sqlite3.Connection, csv_path: Path, target_csv_pat
                     (new_index, observation["observation_id"]),
                 )
     conn.commit()
+
+
+def write_csv_export(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in CSV_FIELDS})
+
+
+def export_csv(conn: sqlite3.Connection, csv_path: Path, target_csv_path: Path) -> dict[str, Any]:
+    """Write on-demand CSV files from SQLite without changing observation facts."""
     rows = [dict(row) for row in conn.execute("SELECT * FROM observations ORDER BY created_at, feed_index")]
-    for path, selected in ((csv_path, rows), (target_csv_path, [row for row in rows if row["is_relevant"]])):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", newline="", encoding="utf-8-sig") as handle:
-            writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS, extrasaction="ignore")
-            writer.writeheader()
-            for row in selected:
-                writer.writerow({field: row.get(field, "") for field in CSV_FIELDS})
+    relevant_rows = [row for row in rows if row["is_relevant"]]
+    write_csv_export(csv_path, rows)
+    write_csv_export(target_csv_path, relevant_rows)
+    return {
+        "ok": True,
+        "observed": len(rows),
+        "relevant": len(relevant_rows),
+        "csv": str(csv_path),
+        "target_csv": str(target_csv_path),
+    }
 
 
 def counts(conn: sqlite3.Connection, session_id: str) -> tuple[int, int]:
@@ -459,8 +460,9 @@ def load_payload(raw: str | None, file: Path | None) -> Any:
 def command_record(args: argparse.Namespace) -> None:
     """Append one observation, or a small array of observations.
 
-    Each item is committed to SQLite and appended to the CSV mirrors
-    independently so a browser interruption cannot discard a whole batch.
+    Each item is committed to SQLite and its durable outbox independently
+    so a browser interruption cannot discard a whole batch. CSV is not
+    written here; use `export` when a user asks to inspect or deliver data.
     """
     conn = db_connect(args.db)
     session = active_session(conn)
@@ -498,9 +500,6 @@ def command_record(args: argparse.Namespace) -> None:
             feedback["duplicate_of"] = duplicate_of["observation_id"]
             row["rpa_feedback"] = json.dumps(feedback, ensure_ascii=False, separators=(",", ":"))
         insert_record(conn, row)
-        append_csv(args.csv, row)
-        if row["is_relevant"]:
-            append_csv(args.target_csv, row)
         observed += 1
         relevant += int(row["is_relevant"])
         progress = observed if session["count_mode"] == "observed" else relevant
@@ -611,7 +610,7 @@ def command_amend(args: argparse.Namespace) -> None:
     )
     refresh_queued_record(conn, args.observation_id)
     conn.commit()
-    rebuild_csv_exports(conn, args.csv, args.target_csv)
+    reindex_target_rows(conn)
     session = conn.execute("SELECT session_id FROM observations WHERE observation_id=?", (args.observation_id,)).fetchone()
     observed, relevant_count = counts(conn, session["session_id"])
     print(json.dumps({
@@ -654,20 +653,10 @@ def command_finish(args: argparse.Namespace) -> None:
     print(json.dumps(output, ensure_ascii=False))
 
 
-def command_rebuild(args: argparse.Namespace) -> None:
-    """Regenerate CSV mirrors from SQLite without changing observation facts."""
+def command_export(args: argparse.Namespace) -> None:
+    """Generate CSV files from SQLite only when a user asks to inspect or deliver data."""
     conn = db_connect(args.db)
-    rebuild_csv_exports(conn, args.csv, args.target_csv)
-    row = conn.execute(
-        "SELECT COUNT(*) AS observed, COALESCE(SUM(is_relevant), 0) AS relevant FROM observations"
-    ).fetchone()
-    print(json.dumps({
-        "ok": True,
-        "observed": int(row["observed"]),
-        "relevant": int(row["relevant"]),
-        "csv": str(args.csv),
-        "target_csv": str(args.target_csv),
-    }, ensure_ascii=False))
+    print(json.dumps(export_csv(conn, args.csv, args.target_csv), ensure_ascii=False))
 
 
 def command_sample_dwell(args: argparse.Namespace) -> None:
@@ -745,9 +734,11 @@ def command_mcp_ack(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
-    parser.add_argument("--csv", type=Path, default=DEFAULT_CSV)
-    parser.add_argument("--target-csv", type=Path, default=DEFAULT_TARGET_CSV)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    def add_export_path_args(command: argparse.ArgumentParser) -> None:
+        command.add_argument("--csv", type=Path, default=DEFAULT_CSV)
+        command.add_argument("--target-csv", type=Path, default=DEFAULT_TARGET_CSV)
 
     start = sub.add_parser("start", help="start or resume a session")
     start.add_argument("--target", type=int, default=100)
@@ -763,7 +754,7 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="show current progress")
     status.set_defaults(func=command_status)
 
-    amend = sub.add_parser("amend", help="correct one already-saved observation and rebuild CSV mirrors")
+    amend = sub.add_parser("amend", help="correct one already-saved observation")
     amend.add_argument("--observation-id", required=True)
     relevance = amend.add_mutually_exclusive_group(required=True)
     relevance.add_argument("--relevant", action="store_true")
@@ -780,8 +771,13 @@ def build_parser() -> argparse.ArgumentParser:
     finish = sub.add_parser("finish", help="stop the timer and close the active session")
     finish.set_defaults(func=command_finish)
 
-    rebuild = sub.add_parser("rebuild", help="rebuild CSV mirrors from SQLite without altering records")
-    rebuild.set_defaults(func=command_rebuild)
+    export = sub.add_parser("export", help="write CSV from SQLite when a user asks to inspect or deliver data")
+    add_export_path_args(export)
+    export.set_defaults(func=command_export)
+
+    rebuild = sub.add_parser("rebuild", help="alias for export; does not run during collection")
+    add_export_path_args(rebuild)
+    rebuild.set_defaults(func=command_export)
 
     dwell = sub.add_parser("sample-dwell", help="sample a bounded normal-distribution dwell time")
     dwell.add_argument("--relevant", action="store_true")
