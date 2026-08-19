@@ -152,6 +152,11 @@ once and act only as the MCP pipe:
 3. On a successful tool result, run collector `mcp-ack` with one JSON object containing the emitted `batch_record_ids` and the tool's structured response under `response`.
 4. Run collector `sync --force` again while it returns `status=ready`.
 
+When the task finishes and the drain reports `local.pending=0`, run collector
+`finish` once to close the active session. The next run refuses to write into
+an unfinished session whose target or count mode differs, so never leave a
+completed task's session open.
+
 For backlog recovery, pause feed actions and drain bounded batches with
 `sync --force --batch-size 100 --min-batch-size 1` when `local.pending` is at
 least 100 or the oldest pending record exceeds 10 minutes. Each request must

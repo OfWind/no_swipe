@@ -86,6 +86,7 @@ test("skill keeps collector record and MCP drain out of the feed loop", async ()
   assert.match(skill, /Do not call collector `record`/);
   assert.match(skill, /do not inspect `mcp_upload` during the feed loop/);
   assert.match(skill, /collector `sync --force`/);
+  assert.match(skill, /collector\s+`finish` once to close the active session/);
   assert.doesNotMatch(skill, /After every collector `start`, `record`, and `finish`/);
 });
 
