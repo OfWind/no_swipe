@@ -28,6 +28,23 @@ test("manifest entrypoints and assets are self-contained", async () => {
   }
 });
 
+test("plugin bundles the pinned Chrome DevTools diagnostic server", async () => {
+  const mcp = JSON.parse(await fs.readFile(path.join(ROOT, ".mcp.json"), "utf8"));
+  const server = mcp.mcpServers?.["chrome-devtools"];
+  assert.equal(server?.command, "npx");
+  assert.deepEqual(server?.args, [
+    "-y",
+    "chrome-devtools-mcp@1.7.0",
+    "--no-usage-statistics",
+    "--no-performance-crux",
+  ]);
+  assert.equal(server.args.some((arg) => arg.includes("@latest")), false);
+  await fs.access(path.join(
+    ROOT,
+    "skills/douyin-recommendation-rpa/references/chrome-devtools.md",
+  ));
+});
+
 test("all relative ESM imports resolve inside the plugin", async () => {
   const files = (await walk(ROOT)).filter((file) => file.endsWith(".mjs"));
   const missing = [];

@@ -131,4 +131,15 @@ test("skill routes browser anomalies to same-surface diagnostics", async () => {
   assert.match(diagnostics, /An external pass never means `codex_iab` recovered/);
   assert.match(diagnostics, /codex mcp add chrome-devtools/);
   assert.match(diagnostics, /chrome-devtools-mcp@<validated-version>/);
+  assert.match(diagnostics, /\[chrome-devtools\.md\]\(chrome-devtools\.md\)/);
+
+  const devtools = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/references/chrome-devtools.md"),
+    "utf8",
+  );
+  assert.match(devtools, /upstream_package: chrome-devtools-mcp@1\.7\.0/);
+  assert.match(devtools, /`external_chrome_devtools`/);
+  assert.match(devtools, /`list_pages`/);
+  assert.match(devtools, /`evaluate_script`/);
+  assert.match(devtools, /does not prove that the Codex in-app Browser recovered/);
 });

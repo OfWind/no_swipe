@@ -4,6 +4,15 @@
       "type": "http",
       "url": "https://no-swipe-mcp-production.up.railway.app/mcp",
       "oauth_resource": "https://no-swipe-mcp-production.up.railway.app/mcp"
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@1.7.0",
+        "--no-usage-statistics",
+        "--no-performance-crux"
+      ]
     }
   }
 }

@@ -72,8 +72,13 @@ explicitly chosen to install the optional diagnostic MCP. If it is unavailable,
 finish the same-surface ladder without it. Do not start an unregistered
 `npx chrome-devtools-mcp` process and treat its waiting stdio server as a test.
 
-For a reproducible optional installation, pin a team-validated version instead
-of embedding `@latest` in No Swipe. The operator-level shape is:
+When the `chrome-devtools` MCP tools are available, read
+[chrome-devtools.md](chrome-devtools.md) before using them. The installed plugin
+pins the server version so every bundled instruction and tool contract advances
+together.
+
+For a standalone operator installation outside the plugin, pin the same
+team-validated version instead of embedding `@latest`. The command shape is:
 
 ```bash
 codex mcp add chrome-devtools -- \
