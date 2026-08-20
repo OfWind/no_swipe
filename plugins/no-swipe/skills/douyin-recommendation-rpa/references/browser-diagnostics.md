@@ -1,0 +1,119 @@
+# No Swipe browser diagnostics
+
+Read this reference after a page/CDP anomaly, including a timed-out read,
+`browser unavailable`, a stale or detached tab, an unrecognized recommendation
+card, or an unverified feed transition. Stop feed actions first and preserve the
+SQLite/outbox state before diagnosing.
+
+The objective is to locate the failing boundary. A working page is not evidence
+that its control transport works, and a working external Chrome is not evidence
+that the Codex in-app Browser recovered.
+
+## 1. Name the controlled surface
+
+Record exactly one surface before probing it:
+
+- `codex_iab`: the Codex in-app Browser selected through its bundled Browser
+  control path;
+- `external_extension`: a user-owned Chrome/Edge tab connected through the
+  ChatGPT browser extension;
+- `external_chrome_devtools`: a Chrome instance controlled by
+  `chrome-devtools-mcp`.
+
+Reuse the current browser binding. Obtain a fresh tab from that binding when the
+tab is stale or missing. Do not make a second tab to hide a session-ownership or
+transport failure. When the user identified a specific new Douyin tab, diagnose
+only the currently enumerated matching tab and do not reuse a historical tab ID.
+
+## 2. Run the same-surface ladder
+
+Run one bounded, read-only probe at a time on the failing surface and capture
+the first failing boundary:
+
+1. **Discovery:** the browser binding exists and the exact tab can be obtained.
+2. **Tab metadata:** read the current URL and title.
+3. **Plain DOM:** read a bounded prefix of `body.innerText`.
+4. **Simple JavaScript:** return `location.href`, `document.readyState`, viewport
+   dimensions, and `document.querySelectorAll("video").length`.
+5. **Douyin adapter DOM:** return the count and visible rectangles for `video`
+   and `[class*="video_"]`; return only compact primitives, not the full DOM.
+6. **Card projection:** on the single most-visible candidate, read its class,
+   bounded text, media state, links, and controls using the same assumptions as
+   `getActiveCard()`.
+7. **Runner seam:** call `getActiveCard()` once only after probes 1-6 succeed.
+
+Do not retry an identical timed-out probe. Narrow it or move to the diagnosis
+table. Do not click, press a key, reload, close, claim, or navigate while running
+this read-only ladder.
+
+| First failing boundary | Classification | Next action |
+| --- | --- | --- |
+| Browser discovery | `browser_backend_unavailable` | Inspect the Codex Browser backend and current task binding. |
+| Tab acquisition or ownership | `tab_session_mismatch` | Reuse the browser binding and reacquire the exact current tab. |
+| Metadata, plain DOM, or simple JavaScript | `control_transport_failure` | Preserve the page and inspect Browser pipe/CDP/runtime evidence. |
+| Adapter selectors return quickly with no visible candidate | `douyin_dom_adapter_mismatch` | Capture compact selector evidence and update the adapter/runner with a regression fixture. |
+| Adapter probe itself times out | `page_or_runtime_evaluate_timeout` | Compare a smaller JavaScript probe and inspect page main-thread/runtime health. |
+| Probes 1-6 pass but `getActiveCard()` fails | `no_swipe_runner_failure` | Minimize the projection that fails and add a runner regression test before changing code. |
+| Card reads succeed but the ID does not change after a permitted transition | `feed_transition_unverified` | Stop; preserve the last card and focus evidence. Do not blind-retry. |
+
+CAPTCHA, access restriction, account mismatch, login gates, or rate limits remain
+safety stops rather than browser bugs.
+
+## 3. Use Chrome DevTools MCP only as an external comparison
+
+The upstream [Chrome DevTools skill](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/skills/chrome-devtools/SKILL.md)
+describes how an agent uses tools supplied by `chrome-devtools-mcp`; the Skill
+does not install or start that MCP server. The server defaults to a separate
+Google Chrome instance with its own profile. Label all its evidence
+`external_chrome_devtools`.
+
+Use the comparison only when its tools are already available or an operator has
+explicitly chosen to install the optional diagnostic MCP. If it is unavailable,
+finish the same-surface ladder without it. Do not start an unregistered
+`npx chrome-devtools-mcp` process and treat its waiting stdio server as a test.
+
+For a reproducible optional installation, pin a team-validated version instead
+of embedding `@latest` in No Swipe. The operator-level shape is:
+
+```bash
+codex mcp add chrome-devtools -- \
+  npx -y chrome-devtools-mcp@<validated-version> \
+  --isolated --no-usage-statistics --no-performance-crux
+```
+
+After registration, start a new Codex task and run the same compact DOM probes
+in that external Chrome. `--isolated` has no existing Douyin login; use it first
+for a non-sensitive control-path check. A dedicated diagnostic profile requires
+an explicit decision because the MCP client can inspect all data available in
+the controlled browser.
+
+Interpret the comparison narrowly:
+
+| Failing surface | External Chrome comparison | Supported conclusion |
+| --- | --- | --- |
+| Simple JavaScript fails | Passes | The failure is scoped toward the original Browser binding/session/transport. |
+| Simple JavaScript passes; adapter DOM fails | Fails the same way | The Douyin page state, DOM variant, or probe cost is implicated. |
+| Simple JavaScript passes; adapter DOM fails | Passes | The original Browser environment or session remains implicated. |
+| Adapter DOM passes; only `getActiveCard()` fails | Passes | The No Swipe runner/projection is implicated. |
+
+An external pass never means `codex_iab` recovered. Chrome DevTools MCP can
+attach to the same browser only when that browser explicitly exposes a supported
+CDP HTTP/WebSocket endpoint and grants access. Do not guess an endpoint or treat
+a proxy port as CDP.
+
+## 4. Report and preserve
+
+Report:
+
+- surface and current URL class (profile, recommendation, verification, other);
+- first failing probe and elapsed time;
+- normalized error class and exact non-secret error text;
+- selector counts and compact rectangles when available;
+- whether the external comparison was not run, passed, or failed;
+- persisted, pending, and dead observation counts.
+
+Redact cookies, tokens, authorization headers, WebSocket credentials, OTPs, and
+reusable browser-session material. At the anomaly boundary, drain the existing
+outbox according to the main Skill, then leave the task resumable. Resume feed
+actions only after the original surface passes the failed probe and account,
+config, and page-state gates are revalidated.

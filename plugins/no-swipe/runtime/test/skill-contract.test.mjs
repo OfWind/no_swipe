@@ -111,3 +111,24 @@ test("skill prioritizes the confirmed 60-second immediate lane", async () => {
   assert.match(skill, /otherwise swipe immediately/);
   assert.match(skill, /Do not wait, visit the creator homepage, or allocate like/);
 });
+
+test("skill routes browser anomalies to same-surface diagnostics", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  const diagnostics = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/references/browser-diagnostics.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /references\/browser-diagnostics\.md/);
+  assert.match(skill, /bounded same-surface ladder/);
+  assert.match(skill, /external pass never proves/);
+  assert.match(diagnostics, /`codex_iab`/);
+  assert.match(diagnostics, /`external_chrome_devtools`/);
+  assert.match(diagnostics, /Do not retry an identical timed-out probe/);
+  assert.match(diagnostics, /An external pass never means `codex_iab` recovered/);
+  assert.match(diagnostics, /codex mcp add chrome-devtools/);
+  assert.match(diagnostics, /chrome-devtools-mcp@<validated-version>/);
+});

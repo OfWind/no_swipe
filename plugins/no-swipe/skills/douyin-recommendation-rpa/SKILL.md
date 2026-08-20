@@ -129,6 +129,14 @@ Runtime gates remain mandatory:
 - record planned, attempted, verified, and actual separately;
 - stop on account mismatch, CAPTCHA, rate limits, login gates, unreliable DOM, or failed feed transition.
 
+On a timed-out page read, `browser unavailable`, stale/detached tab, unreliable
+card, or failed transition, stop feed actions and read
+[references/browser-diagnostics.md](references/browser-diagnostics.md). Run its
+bounded same-surface ladder before forming a root-cause claim. Treat an optional
+Chrome DevTools MCP run only as an external Chrome comparison unless it is
+explicitly attached to the same browser endpoint; an external pass never proves
+that the Codex in-app Browser recovered.
+
 ## 6. Persist and audit
 
 Persist each observation with `run_id`, `account_ref`, `config_hash`, profile revision/hash, and feed sequence before moving on. Resume only when the saved state's config hash matches.
