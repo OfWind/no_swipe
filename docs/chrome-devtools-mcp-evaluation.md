@@ -2,7 +2,7 @@
 
 - 评估日期：2026-08-20
 - 上游项目：[ChromeDevTools/chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)
-- 评估快照：上游 `main` 的 `package.json` 为 `1.7.0`；本机 `npx -y chrome-devtools-mcp@latest --version` 同样返回 `1.7.0`
+- 产品策略快照：macOS 优先，通过 `chrome-devtools-mcp@latest` 提供机会性的外部 Chrome 对照；实际诊断时记录解析到的版本
 - 评估范围：判断官方 `chrome-devtools` Skill、`chrome-devtools-mcp` 服务以及 Codex 内置 Browser 之间的能力边界，不把外部 Chrome 成功误判成内置 Browser 已恢复
 
 ## 结论
@@ -16,9 +16,9 @@
 因此，对 No Swipe 的建议是：
 
 1. **不要把上游 `SKILL.md` 复制到 No Swipe references 后就期待它修复故障。** references 适合保存 No Swipe 自己的分层诊断流程和上游链接，不提供底层工具能力。
-2. **将 `chrome-devtools-mcp` 作为可选的外部 Chrome 对照诊断工具，不作为 No Swipe Runtime 的必需依赖。** 它很适合判断抖音 DOM、网络请求、控制台错误和脚本执行是否在一个干净的官方 Chrome 中正常。
+2. **将 `chrome-devtools-mcp` 注册为机会性的外部 Chrome 对照工具，但不作为 No Swipe Runtime 的代码依赖或启动门槛。** 它很适合判断抖音 DOM、网络请求、控制台错误和脚本执行是否在一个干净的官方 Chrome 中正常；启动失败时回到原 Browser 的分层诊断。
 3. **内置 Browser 必须优先用 Codex 自带 Browser 控制路径诊断。** 只有当 Codex 内置 Browser 明确暴露可访问的 CDP HTTP/WebSocket endpoint 时，才能再讨论让外部 Chrome DevTools MCP 接入同一个实例。当前官方资料没有提供这条 Codex 内置 Browser 接入方式。
-4. **不要用 `@latest` 作为可复现的产品依赖。** 临时人工排障可以用 `@latest`；若团队决定标准化安装，应固定经过验证的版本，并在诊断记录中保存版本号。
+4. **本插件有意使用 `@latest` 获取上游最新浏览器修复。** 这条路径优先面向 macOS、只承担机会性诊断，因此新鲜度优先于跨日期完全复现；诊断记录必须保存实际解析到的版本。
 
 ## 1. Skill 和 MCP Server 是两件事
 
@@ -36,7 +36,7 @@
 
 ## 2. `npx chrome-devtools-mcp@latest` 实际做什么
 
-上游 `package.json` 把 `chrome-devtools-mcp` 映射到 Server 可执行入口，并将包描述为 “MCP server for Chrome DevTools”。截至本次评估，上游版本为 `1.7.0`，Node 要求为 `^20.19.0 || ^22.12.0 || >=23`。[官方 package.json](https://raw.githubusercontent.com/ChromeDevTools/chrome-devtools-mcp/main/package.json)
+上游 `package.json` 把 `chrome-devtools-mcp` 映射到 Server 可执行入口，并将包描述为 “MCP server for Chrome DevTools”。由于插件使用 `@latest`，Node 和 Chrome 前提可能随上游版本变化；诊断时应以当前 [官方 package.json](https://raw.githubusercontent.com/ChromeDevTools/chrome-devtools-mcp/main/package.json) 和 `--help` 输出为准。
 
 官方给 Codex 的注册方式是：
 
@@ -121,14 +121,14 @@ No Swipe 主诊断
 | 简单 JS 正常，No Swipe DOM 读取失败 | 外部 Chrome 正常 | 内置 Browser 兼容性或该 session 状态 |
 | 两边都正常，仅 `getActiveCard()` 失败 | 正常 | No Swipe Runner 实现或超时边界 |
 
-这份 reference 是可审阅的运行手册；`chrome-devtools-mcp` 则保持为诊断人员按需安装的外部工具。不要把它加入 No Swipe Runtime 的生产 dependencies，否则会扩大安装面、版本面和浏览器权限面，却仍不能保证接管内置 Browser。
+这份 reference 是可审阅的运行手册；插件通过 `.mcp.json` 注册 `chrome-devtools-mcp@latest` 并传入 `--isolated`，让新任务在工具可用时直接尝试临时 profile 的外部对照。它不加入 No Swipe Runtime 的 npm dependencies，诊断流程也不得把它当作启动、持久化或恢复的门槛，因为它仍不能保证接管内置 Browser。`npx`、Node.js 或官方 Google Chrome 不可用时，只记录外部对照不可用并回到原 Browser 诊断。
 
 ### 建议的最小外部对照测试
 
 1. 注册 MCP，并新开 Codex 任务：
 
    ```bash
-   codex mcp add chrome-devtools -- npx -y chrome-devtools-mcp@1.7.0 \
+   codex mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest \
      --isolated \
      --no-usage-statistics \
      --no-performance-crux
@@ -165,16 +165,17 @@ Chrome DevTools MCP 能让 MCP 客户端读取、调试和修改它所控制 Bro
 
 上游只正式支持 Google Chrome 和 Chrome for Testing；其他 Chromium 浏览器可能工作，但不保证。因此不能因为 360、Codex 内置 Browser 或其他浏览器使用 Chromium 内核，就把它们视为官方支持目标。[README：Disclaimers](https://github.com/ChromeDevTools/chrome-devtools-mcp#disclaimers)
 
-### `@latest` 与版本固定
+### `@latest` 产品策略
 
 官方明确说明 `@latest` 会让 MCP 客户端持续使用最新版。这适合临时获得修复，但会导致不同电脑、不同日期运行不同实现。[README：Getting started](https://github.com/ChromeDevTools/chrome-devtools-mcp#getting-started)
 
-建议：
+No Swipe 当前选择：
 
-- 临时人工排障：允许 `@latest`，但先记录 `npx -y chrome-devtools-mcp@latest --version`；
-- 团队复现和标准诊断：固定经过验证的版本，例如本次的 `chrome-devtools-mcp@1.7.0`；
-- 升级：先在无敏感数据的独立 profile 上通过基本工具链测试，再更新团队 pin；
-- Windows：官方对 Codex 建议通过 `cmd /c npx` 并适当提高 `startup_timeout_ms`；不同系统不要假定同一 shell 启动方式。[README：Codex on Windows 11](https://github.com/ChromeDevTools/chrome-devtools-mcp#codex)
+- macOS 是本诊断入口的优先发布目标，插件直接注册 `chrome-devtools-mcp@latest`；
+- 每次诊断先记录 `npx -y chrome-devtools-mcp@latest --version`，保留实际运行版本；
+- 在无敏感数据的独立 profile 上先做基本工具链检查，再进入抖音页面；
+- `@latest` 升级导致的启动或工具契约问题只会让外部对照不可用，不得成为 No Swipe Runtime、持久化或恢复的额外故障；
+- Windows 兼容性不作为本次发布阻塞项，后续需要支持时再按上游 Codex 指南增加专用启动配置。[README：Codex on Windows 11](https://github.com/ChromeDevTools/chrome-devtools-mcp#codex)
 
 ## 7. 对当前问题的判定边界
 

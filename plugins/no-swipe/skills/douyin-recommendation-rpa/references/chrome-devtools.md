@@ -2,7 +2,7 @@
 name: chrome-devtools
 description: Uses Chrome DevTools via MCP for No Swipe browser troubleshooting and external Chrome comparison.
 upstream: https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/skills/chrome-devtools/SKILL.md
-upstream_package: chrome-devtools-mcp@1.7.0
+upstream_package: chrome-devtools-mcp@latest
 ---
 
 # Chrome DevTools MCP reference
@@ -14,10 +14,28 @@ server is explicitly attached to the exact same browser endpoint under test.
 
 ## Core concepts
 
-**Browser lifecycle:** The browser starts automatically on the first tool call
-using a persistent, dedicated Chrome profile. CLI arguments are configured by
-the plugin's `.mcp.json`; inspect `npx chrome-devtools-mcp@1.7.0 --help` when an
-operator needs the version-matched option reference.
+**Browser lifecycle:** The browser starts automatically on the first tool call.
+The plugin passes `--isolated`, so this comparison uses a temporary Chrome
+profile instead of reusing an existing or persistent login. CLI arguments are
+configured by the plugin's `.mcp.json`; inspect
+`npx chrome-devtools-mcp@latest --help` when an operator needs the current option
+reference.
+
+Codex may initialize the stdio MCP server when a new task discovers its tools,
+even though this reference is read only after an anomaly and Chrome itself is
+normally deferred until the first browser tool call. Because the launcher uses
+`npx ...@latest`, first initialization can contact the npm registry and download
+the package; later behavior depends on the local npm cache and upstream release.
+
+**Supported diagnostic path:** The bundled launcher is macOS-first and expects
+Node.js/npm with `npx` plus an official Google Chrome installation. It follows
+the upstream `latest` release so a newly installed task can pick up current
+browser fixes. Record `npx -y chrome-devtools-mcp@latest --version` in the
+diagnostic result when reproducibility matters. If the tools are absent or the
+server/Chrome cannot start, classify the external comparison as unavailable and
+continue the same-surface diagnostic ladder. This optional path must not become
+an additional No Swipe startup or persistence gate; the original Browser probe
+still decides whether feed actions may safely resume.
 
 Additional tooling can be enabled through MCP configuration:
 

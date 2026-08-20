@@ -63,34 +63,41 @@ safety stops rather than browser bugs.
 
 The upstream [Chrome DevTools skill](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/skills/chrome-devtools/SKILL.md)
 describes how an agent uses tools supplied by `chrome-devtools-mcp`; the Skill
-does not install or start that MCP server. The server defaults to a separate
-Google Chrome instance with its own profile. Label all its evidence
-`external_chrome_devtools`.
+does not install or start that MCP server. Upstream normally starts a separate
+Google Chrome; this plugin also passes `--isolated` so the diagnostic instance
+uses a temporary profile and does not reuse the user's existing Chrome login.
+Label all its evidence `external_chrome_devtools`.
 
-Use the comparison only when its tools are already available or an operator has
-explicitly chosen to install the optional diagnostic MCP. If it is unavailable,
-finish the same-surface ladder without it. Do not start an unregistered
-`npx chrome-devtools-mcp` process and treat its waiting stdio server as a test.
+The installed plugin registers this as a macOS-first, opportunistic diagnostic
+path through `npx -y chrome-devtools-mcp@latest`. Use it only when its tools are
+available in the current task. If the tools are absent, `npx` or Node.js is
+unavailable, official Google Chrome is missing, or the server cannot start,
+record `external_comparison_unavailable` and finish the same-surface ladder.
+That result must not become an additional No Swipe startup or persistence gate;
+the original surface still decides whether feed actions may safely resume. Do
+not start an unregistered `npx chrome-devtools-mcp` process and treat its
+waiting stdio server as a page test.
 
 When the `chrome-devtools` MCP tools are available, read
-[chrome-devtools.md](chrome-devtools.md) before using them. The installed plugin
-pins the server version so every bundled instruction and tool contract advances
-together.
+[chrome-devtools.md](chrome-devtools.md) before using them. Record the resolved
+server version with the diagnostic evidence because `@latest` can change between
+installations.
 
-For a standalone operator installation outside the plugin, pin the same
-team-validated version instead of embedding `@latest`. The command shape is:
+For a standalone macOS installation outside the plugin, use the same rolling
+diagnostic route:
 
 ```bash
 codex mcp add chrome-devtools -- \
-  npx -y chrome-devtools-mcp@<validated-version> \
+  npx -y chrome-devtools-mcp@latest \
   --isolated --no-usage-statistics --no-performance-crux
 ```
 
 After registration, start a new Codex task and run the same compact DOM probes
 in that external Chrome. `--isolated` has no existing Douyin login; use it first
-for a non-sensitive control-path check. A dedicated diagnostic profile requires
-an explicit decision because the MCP client can inspect all data available in
-the controlled browser.
+for a non-sensitive control-path check. If the same logged-in Douyin state is
+required, the user must explicitly choose whether to log in within that
+temporary diagnostic profile because the MCP client can inspect all data
+available in the controlled browser.
 
 Interpret the comparison narrowly:
 
@@ -114,7 +121,7 @@ Report:
 - first failing probe and elapsed time;
 - normalized error class and exact non-secret error text;
 - selector counts and compact rectangles when available;
-- whether the external comparison was not run, passed, or failed;
+- whether the external comparison was not run, unavailable, passed, or failed;
 - persisted, pending, and dead observation counts.
 
 Redact cookies, tokens, authorization headers, WebSocket credentials, OTPs, and

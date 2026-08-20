@@ -20,6 +20,28 @@ codex plugin add no-swipe@no-swipe-marketplace
 
 Start a new Codex task after installation so the bundled skill is loaded.
 
+## Browser diagnostics
+
+On macOS, Browser/CDP timeouts, stale tabs, or recommendation-card read failures
+can trigger the plugin's lazy diagnostic references and its registered
+`npx -y chrome-devtools-mcp@latest` external-Chrome comparison. This optional
+path requires Node.js/npm, `npx`, npm-registry network access, and official
+Google Chrome; first initialization may download the npm package. Codex may
+initialize the MCP server when a new task discovers its tools, while Chrome is
+normally deferred until the first browser tool call. The plugin passes
+`--isolated`, so the comparison uses a temporary profile without reusing the
+user's existing Chrome login. Testing the same logged-in Douyin state requires
+the user to explicitly choose to log in within that temporary Chrome. It does
+not automatically attach to the Codex in-app Browser.
+
+The comparison is an evidence-gathering route, not a guaranteed repair. If its
+tools are unavailable or Chrome cannot launch, No Swipe records the comparison
+as unavailable and continues the original Browser diagnostic ladder. The
+workflow must not treat this optional comparison as a startup or persistence
+gate; the original Browser probe still decides whether feed actions may resume.
+Install or update the plugin, then start a new Codex task so the new Skill and
+MCP configuration are loaded.
+
 ## Update
 
 ```bash

@@ -130,14 +130,18 @@ test("skill routes browser anomalies to same-surface diagnostics", async () => {
   assert.match(diagnostics, /Do not retry an identical timed-out probe/);
   assert.match(diagnostics, /An external pass never means `codex_iab` recovered/);
   assert.match(diagnostics, /codex mcp add chrome-devtools/);
-  assert.match(diagnostics, /chrome-devtools-mcp@<validated-version>/);
+  assert.match(diagnostics, /chrome-devtools-mcp@latest/);
+  assert.match(diagnostics, /external_comparison_unavailable/);
+  assert.match(diagnostics, /not run, unavailable, passed, or failed/);
+  assert.match(diagnostics, /must not become an additional No Swipe startup/);
   assert.match(diagnostics, /\[chrome-devtools\.md\]\(chrome-devtools\.md\)/);
 
   const devtools = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/references/chrome-devtools.md"),
     "utf8",
   );
-  assert.match(devtools, /upstream_package: chrome-devtools-mcp@1\.7\.0/);
+  assert.match(devtools, /upstream_package: chrome-devtools-mcp@latest/);
+  assert.match(devtools, /macOS-first/);
   assert.match(devtools, /`external_chrome_devtools`/);
   assert.match(devtools, /`list_pages`/);
   assert.match(devtools, /`evaluate_script`/);

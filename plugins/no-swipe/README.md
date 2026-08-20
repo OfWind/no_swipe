@@ -26,6 +26,12 @@ ChatGPT 订阅登录和 OpenAI API Key 只负责模型访问，不等于 No Swip
 
 Runner 在每条 `processOne` 内把观察提交到 SQLite 和 durable outbox，刷流循环不再调用 collector `record`。CSV 和 Excel 不在采集时写入；用户要查看或交付时，再用 collector `export` 从 SQLite 生成。远端上传仍按 10 条或 60 秒微批，但不进入刷流循环：暂停、异常、交接或结束时由 collector `sync --force` 给出至多一批 `mcp_upload`，Codex 只负责调用 `ingest_observation_batch` 并 `mcp-ack`。任务结束且 `pending=0` 后调用 collector `finish` 关闭会话，避免下次目标不同时被未结束的旧会话拦住。积压恢复可暂停浏览器并以最大 100 条、400 KB 的有界批次补传。断网不影响采集；只有 `accepted` 或 `duplicated` 会标记为已发送。OAuth token 由 Codex 管理，不写入插件目录、SQLite 或导出文件。
 
+## 浏览器诊断
+
+推荐流读取出现 Browser/CDP 超时、tab 失效或卡片识别异常时，skill 才会读取按需诊断 reference，并可使用插件注册的 `npx -y chrome-devtools-mcp@latest` 做外部 Chrome 对照。该路径优先支持 macOS，需要本机有 Node.js/npm、`npx`、可访问 npm registry 的网络和官方 Google Chrome；首次初始化可能下载 npm 包。Codex 为发现工具可能在新任务开始时初始化 MCP Server，但 Chrome 通常到第一次浏览器工具调用才启动。插件传入 `--isolated`，因此使用不复用现有 Chrome 登录态的临时 profile；如需检查同一抖音登录态，必须由用户明确选择在该临时 Chrome 中登录。它不会因为同为 Chromium 内核就自动接管 Codex 内置 Browser。
+
+这是一条机会性诊断路径，不是保证修复器。工具缺失或启动失败时会记录“外部对照不可用”，继续用原 Browser 做分层只读诊断；诊断流程不得把这个可选对照当成 No Swipe 的启动或持久化门槛。是否恢复刷流仍由原 Browser 探针决定。安装或升级插件后必须新开 Codex 任务，新的 Skill 和 MCP 配置才会进入工具列表。
+
 ## 安全边界
 
 - 仅使用用户已打开且已登录的推荐流页面。

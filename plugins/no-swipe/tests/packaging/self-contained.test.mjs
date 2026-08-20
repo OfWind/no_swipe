@@ -28,17 +28,18 @@ test("manifest entrypoints and assets are self-contained", async () => {
   }
 });
 
-test("plugin bundles the pinned Chrome DevTools diagnostic server", async () => {
+test("plugin registers the macOS-first rolling Chrome DevTools diagnostic server", async () => {
   const mcp = JSON.parse(await fs.readFile(path.join(ROOT, ".mcp.json"), "utf8"));
   const server = mcp.mcpServers?.["chrome-devtools"];
   assert.equal(server?.command, "npx");
   assert.deepEqual(server?.args, [
     "-y",
-    "chrome-devtools-mcp@1.7.0",
+    "chrome-devtools-mcp@latest",
+    "--isolated",
     "--no-usage-statistics",
     "--no-performance-crux",
   ]);
-  assert.equal(server.args.some((arg) => arg.includes("@latest")), false);
+  assert.equal(server.args.some((arg) => arg.includes("@latest")), true);
   await fs.access(path.join(
     ROOT,
     "skills/douyin-recommendation-rpa/references/chrome-devtools.md",
