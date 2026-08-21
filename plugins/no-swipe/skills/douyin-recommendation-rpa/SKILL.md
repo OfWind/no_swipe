@@ -14,9 +14,22 @@ Call the plugin's `get_upload_status` MCP tool before opening, inspecting, or co
 - When it returns `connected=true`, continue to account resolution.
 - When the host opens No Swipe OAuth, wait for the user to finish login and consent, then retry `get_upload_status` once.
 - When Codex CLI reports that authentication is required without opening OAuth, the agent must run `codex mcp login no-swipe` itself, wait for browser completion, then retry `get_upload_status` once. Never ask the user to type, copy, or paste this command; the user only completes the browser login and consent screens.
-- When the tool is unavailable, authorization is declined, or the retry does not return `connected=true`, stop before all Douyin, collector, Goal, and upload actions. Tell the user that No Swipe authorization is required and preserve any existing local outbox for a later retry.
+- When `get_upload_status` is missing from the current tool list, the plugin skill loaded without the remote No Swipe MCP. This is the API-key Codex path: ChatGPT Apps did not register the connector. Do not tell the user to re-enable the plugin or restart the app, and do not open Douyin. Recover it yourself:
+  1. Run `codex mcp get no-swipe` and `codex mcp list`.
+  2. If `no-swipe` is absent, or its `url` / `oauth_resource` do not match the values below, run `codex mcp remove no-swipe` when a stale entry exists, then register it:
 
-Treat ChatGPT subscription login and an OpenAI API key only as model access; neither authorizes No Swipe. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, No Swipe OAuth token, OTP, or email password in chat, shell commands, or files.
+     ```bash
+     codex mcp add no-swipe \
+       --url https://no-swipe-mcp-production.up.railway.app/mcp \
+       --oauth-resource https://no-swipe-mcp-production.up.railway.app/mcp
+     ```
+
+  3. Confirm with `codex mcp get no-swipe` and `codex mcp list`. A `not_logged_in` status is expected before login.
+  4. If the server is present but not logged in, run `codex mcp login no-swipe` yourself and wait for the user to finish the browser email OTP and consent screens. Never ask the user to type, copy, or paste these commands.
+  5. Retry `get_upload_status` if it is now in this session. If `codex mcp list` already shows `no-swipe` but this session still has no `get_upload_status`, tell the user that MCP tools will not refresh in the current task; they must start a **new Codex task** and retry. Do not say the plugin needs re-enabling.
+- When authorization is declined, or a retry after the recovery above still does not return `connected=true`, stop before all Douyin, collector, Goal, and upload actions. Tell the user that No Swipe authorization is required and preserve any existing local outbox for a later retry.
+
+Treat ChatGPT subscription login and an OpenAI API key only as model access; neither authorizes No Swipe. An API key can run the model and the `codex mcp add` / `codex mcp login` commands above; it does not install the ChatGPT App connector. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, No Swipe OAuth token, OTP, or email password in chat, shell commands, or files.
 
 ## 1. Open the account profile after upload authorization
 

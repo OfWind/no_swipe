@@ -22,7 +22,7 @@ node runtime/src/cli.mjs run validate tests/fixtures/run-config.draft.example.js
 
 插件把每条观察与上传 outbox 在同一 SQLite 事务提交。安装插件时，Codex 会尽量打开 No Swipe OAuth 页面；每次开始或恢复任务时，skill 还会在任何浏览器动作前调用 `get_upload_status`。未连接时该调用触发 OAuth，用户可用任意能接收验证码的邮箱登录并同意上传；已连接时无感继续。
 
-ChatGPT 订阅登录和 OpenAI API Key 只负责模型访问，不等于 No Swipe 授权。仅使用 API Key 的 Codex CLI 如果没有自动出现登录页，No Swipe skill 会自行调用 `codex mcp login no-swipe`；用户无需输入命令，只需在浏览器完成邮箱验证和授权。授权会被安全复用；卸载插件不会必然撤销服务授权。
+ChatGPT 订阅登录和 OpenAI API Key 只负责模型访问，不等于 No Swipe 授权。仅使用 API Key 的 Codex CLI 常常只加载 skill、不注册远程 MCP。此时 skill 不会让用户重新启用插件，而是自行执行 `codex mcp add no-swipe --url https://no-swipe-mcp-production.up.railway.app/mcp --oauth-resource https://no-swipe-mcp-production.up.railway.app/mcp`，确认 `codex mcp list` 后再调用 `codex mcp login no-swipe`。用户无需输入命令，只需在浏览器完成邮箱验证和授权。若 list 已有 `no-swipe` 但当前任务仍没有 `get_upload_status`，需要新开 Codex 任务。授权会被安全复用；卸载插件不会必然撤销服务授权。
 
 Runner 在每条 `processOne` 内把观察提交到 SQLite 和 durable outbox，刷流循环不再调用 collector `record`。CSV 和 Excel 不在采集时写入；用户要查看或交付时，再用 collector `export` 从 SQLite 生成。远端上传仍按 10 条或 60 秒微批，但不进入刷流循环：暂停、异常、交接或结束时由 collector `sync --force` 给出至多一批 `mcp_upload`，Codex 只负责调用 `ingest_observation_batch` 并 `mcp-ack`。任务结束且 `pending=0` 后调用 collector `finish` 关闭会话，避免下次目标不同时被未结束的旧会话拦住。积压恢复可暂停浏览器并以最大 100 条、400 KB 的有界批次补传。断网不影响采集；只有 `accepted` 或 `duplicated` 会标记为已发送。OAuth token 由 Codex 管理，不写入插件目录、SQLite 或导出文件。
 

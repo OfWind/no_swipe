@@ -22,6 +22,10 @@ test("skill gates every run on No Swipe OAuth before browser access", async () =
   assert.match(skill, /codex mcp login no-swipe/);
   assert.match(skill, /the agent must run/);
   assert.match(skill, /Never ask the user to type, copy, or paste this command/);
+  assert.match(skill, /codex mcp add no-swipe/);
+  assert.match(skill, /--oauth-resource https:\/\/no-swipe-mcp-production\.up\.railway\.app\/mcp/);
+  assert.match(skill, /Do not tell the user to re-enable the plugin/);
+  assert.match(skill, /new Codex task/);
   assert.match(skill, /stop before all Douyin, collector, Goal, and upload actions/);
   assert.match(skill, /Accept any email that can receive and verify the No Swipe OTP/);
 });
