@@ -33,6 +33,9 @@ export function createApp({ config, tokenVerifier, ingestClient }) {
   for (const path of ["/", "/login", "/oauth/consent", "/account", "/privacy", "/terms"]) {
     app.get(path, (_req, res) => res.sendFile(new URL("../public/index.html", import.meta.url).pathname));
   }
+  app.get("/oauth/complete", (_req, res) => {
+    res.sendFile(new URL("../public/complete.html", import.meta.url).pathname);
+  });
 
   const authMiddleware = requireBearerAuth({
     verifier: tokenVerifier,

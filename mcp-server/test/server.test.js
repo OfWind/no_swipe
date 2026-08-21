@@ -90,6 +90,16 @@ test("serves the OAuth connection management route", async () => {
   assert.match(await response.text(), /No Swipe/);
 });
 
+test("serves the OAuth completion page", async () => {
+  const response = await fetch(`${baseUrl}/oauth/complete`);
+  assert.equal(response.status, 200);
+  const body = await response.text();
+  assert.match(body, /No Swipe/);
+  assert.match(body, /认证完成/);
+  assert.match(body, /已授权/);
+  assert.doesNotMatch(body, /app\.js/);
+});
+
 test("rejects MCP requests without authorization and advertises discovery", async () => {
   const response = await fetch(`${baseUrl}/mcp`, {
     method: "POST",

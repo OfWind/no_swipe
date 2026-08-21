@@ -3,18 +3,40 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#060b10" />
     <title>No Swipe 授权</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css?v=20260821-auth-complete" />
   </head>
   <body>
+    <div class="atmosphere" aria-hidden="true">
+      <div class="orb orb-teal"></div>
+      <div class="orb orb-navy"></div>
+      <div class="orb orb-ice"></div>
+      <div class="grain"></div>
+    </div>
     <main class="shell">
-      <section class="card" id="app" aria-live="polite">
-        <div class="brand"><span class="mark">N</span><span>No Swipe</span></div>
-        <h1>正在准备安全连接…</h1>
-        <p class="muted">请稍候。</p>
+      <section class="card" id="app" aria-live="polite" aria-busy="true">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64">
+              <rect x="2" y="2" width="60" height="60" rx="14" fill="#173F5F"/>
+              <rect x="18" y="11" width="28" height="42" rx="8" fill="none" stroke="#EAF4F7" stroke-width="3"/>
+              <path d="M32 42V22M25 29l7-7 7 7" fill="none" stroke="#3CAEA3" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M13 51L51 13" fill="none" stroke="#FF6B6B" stroke-width="5" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="brand-copy">
+            <span class="brand-name">No Swipe</span>
+            <span class="brand-kicker">安全连接</span>
+          </span>
+        </div>
+        <p class="eyebrow">请稍候</p>
+        <h1>正在准备安全连接</h1>
+        <p class="muted">正在核验授权环境，马上继续。</p>
       </section>
     </main>
-    <script type="module" src="/app.js?v=20260814-revocation-copy"></script>
+    <script type="module" src="/app.js?v=20260821-auth-complete"></script>
   </body>
 </html>

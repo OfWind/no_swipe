@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">No Swipe</title>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#173F5F"/>
+  <rect x="18" y="11" width="28" height="42" rx="8" fill="none" stroke="#EAF4F7" stroke-width="3"/>
+  <path d="M32 42V22M25 29l7-7 7 7" fill="none" stroke="#3CAEA3" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13 51L51 13" fill="none" stroke="#FF6B6B" stroke-width="5" stroke-linecap="round"/>
+</svg>

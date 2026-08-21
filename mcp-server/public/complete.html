@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#060b10" />
+    <title>认证完成 · No Swipe</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css?v=20260821-auth-complete" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true">
+      <div class="orb orb-teal"></div>
+      <div class="orb orb-navy"></div>
+      <div class="orb orb-ice"></div>
+      <div class="grain"></div>
+    </div>
+    <main class="shell">
+      <section class="card complete" id="app">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64">
+              <rect x="2" y="2" width="60" height="60" rx="14" fill="#173F5F"/>
+              <rect x="18" y="11" width="28" height="42" rx="8" fill="none" stroke="#EAF4F7" stroke-width="3"/>
+              <path d="M32 42V22M25 29l7-7 7 7" fill="none" stroke="#3CAEA3" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M13 51L51 13" fill="none" stroke="#FF6B6B" stroke-width="5" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="brand-copy">
+            <span class="brand-name">No Swipe</span>
+            <span class="brand-kicker">授权完成</span>
+          </span>
+        </div>
+        <div class="hero-mark" aria-hidden="true">
+          <svg class="check-svg" viewBox="0 0 72 72">
+            <circle cx="36" cy="36" r="28"/>
+            <path d="M23 37.5l8.5 8.5 17.5-19"/>
+          </svg>
+        </div>
+        <p class="eyebrow">已连接</p>
+        <h1>认证完成</h1>
+        <p class="lede" id="lede">插件已安全连接。你可以关闭这个窗口，返回 Codex 继续。</p>
+        <div class="status-row">
+          <span class="pill"><span class="dot"></span>已授权</span>
+          <span class="pill quiet">加密回调</span>
+        </div>
+        <button type="button" id="continue" hidden>继续返回 Codex</button>
+        <span class="progress" id="progress" hidden aria-hidden="true"><span></span></span>
+        <p class="hint" id="hint">此窗口可以安全关闭。</p>
+      </section>
+    </main>
+    <script>
+      (function () {
+        var KEY = "no-swipe-oauth-handoff";
+        var redirectUrl = sessionStorage.getItem(KEY);
+        if (!redirectUrl) return;
+        var continueBtn = document.getElementById("continue");
+        var progress = document.getElementById("progress");
+        var hint = document.getElementById("hint");
+        var lede = document.getElementById("lede");
+        continueBtn.hidden = false;
+        progress.hidden = false;
+        hint.textContent = "无需任何操作，页面会自动继续。";
+        lede.textContent = "插件已安全连接。正在把授权交还给 Codex，随后即可关闭此窗口。";
+        var go = function () {
+          sessionStorage.removeItem(KEY);
+          location.replace(redirectUrl);
+        };
+        var delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 250 : 1600;
+        var timer = window.setTimeout(go, delay);
+        continueBtn.addEventListener("click", function () {
+          window.clearTimeout(timer);
+          go();
+        });
+      })();
+    </script>
+  </body>
+</html>
