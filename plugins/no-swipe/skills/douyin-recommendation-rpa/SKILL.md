@@ -18,6 +18,10 @@ export NO_SWIPE="$HOME/.config/no-swipe/bin/<cli-version>/no-swipe"
 
 Prefix every later invocation as `"$NO_SWIPE" …`. Examples below write `no-swipe` for readability; substitute `$NO_SWIPE` and keep `NO_SWIPE_PLUGIN_ROOT` exported.
 
+The compiled `no-swipe` binary does not contain this skill and does not open a browser. You open workbench and Douyin pages yourself.
+
+Unless the user explicitly asks for another browser (system Chrome, Safari, or chrome-devtools), use the Codex built-in browser for pairing, Douyin, and the workbench.
+
 ## 0. Authorize data upload before browser access
 
 This authorization gate is mandatory for every new or resumed run. Stop before all Douyin, collector, Goal, and upload actions unless `auth status` returns `connected=true`.
@@ -25,7 +29,7 @@ This authorization gate is mandatory for every new or resumed run. Stop before a
 1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. It downloads only this machine's binary. Linux is not a release target.
 2. Run `no-swipe auth status`.
 3. When `connected=true`, continue to account resolution.
-4. When not connected, run `no-swipe auth login`. It prints `pair_url`. Open that URL in the Codex browser. The user completes email OTP and taps 同意授权. Wait until login prints `status=approved`, then retry `auth status` once.
+4. When not connected, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The user completes email OTP and taps 同意授权 on that page. Wait until login prints `status=approved`, then retry `auth status` once.
 5. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, device token, OTP, or email password.
 
 Do not tell the user to re-enable the plugin, install Codex CLI, Node, Python, or uv. If the binary is missing after bootstrap, start a **new Codex task** after plugin upgrade. On Windows, an unsigned `no-swipe.exe` may be blocked by SmartScreen or 360; treat that as a local trust prompt, not an install failure, and do not switch to a Node or Python workaround.
@@ -132,7 +136,7 @@ Return to the recommendation feed only after confirmation. Follow the versioned 
 
 Profile inspection is evidence collection, not a quota action. Return to the same feed item or a reliably identified next item before continuing.
 
-Drive the Codex built-in browser yourself. For each item, send visible page facts to `no-swipe step --db <sqlite> --json-file <payload.json>`. `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`. When it returns `status=needs_evidence`, open the author homepage, collect `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` (use `null` rather than guessing), and recall `step` with the same `record_id`. Do not call collector `record` during the feed loop.
+Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. For each item, send visible page facts to `no-swipe step --db <sqlite> --json-file <payload.json>`. `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`. When it returns `status=needs_evidence`, open the author homepage, collect `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` (use `null` rather than guessing), and recall `step` with the same `record_id`. Do not call collector `record` during the feed loop.
 
 Runtime gates remain mandatory:
 
@@ -161,7 +165,7 @@ Require `local.pending=0` at those lifecycle boundaries and before completing th
 
 When the task finishes and `pending=0`, run `no-swipe finish --db <sqlite>` once to close the active session.
 
-After a successful run, open the workbench URL from `auth status` / credentials so the user can see uploaded authors. The pairing session already signed them in.
+After a successful run, open the workbench URL from `auth status` / credentials with the Codex built-in browser so the user can see uploaded authors. The pairing session already signed them in.
 
 Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source. CSV and Excel are on-demand exports, not live copies.
 

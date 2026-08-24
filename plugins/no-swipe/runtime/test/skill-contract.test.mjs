@@ -20,6 +20,9 @@ test("skill gates every run on device pairing before browser access", async () =
   assert.match(skill, /description:.*Verify No Swipe upload authorization before every browser action/);
   assert.match(skill, /mandatory for every new or resumed run/);
   assert.match(skill, /no-swipe auth login/);
+  assert.match(skill, /pair_url/);
+  assert.match(skill, /Codex built-in browser/);
+  assert.match(skill, /Unless the user explicitly asks for another browser/);
   assert.match(skill, /scripts\/bootstrap/);
   assert.doesNotMatch(skill, /codex mcp add no-swipe|get_upload_status|ingest_observation_batch/);
   assert.match(skill, /Do not tell the user to re-enable the plugin/);
