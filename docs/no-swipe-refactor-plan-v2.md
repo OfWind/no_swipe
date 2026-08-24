@@ -150,6 +150,7 @@ sequenceDiagram
 18. **发布**：上传 Storage `no-swipe-releases/<version>/`。bucket **匿名只读、写入关闭**；对象键带版本，禁止覆盖最新文件名而不改版本
 19. **引导脚本**：`bootstrap.sh` + `bootstrap.ps1` 随插件分发。检测 `uname` / `$env:PROCESSOR_ARCHITECTURE` → curl 下载（macOS / Win10+ 自带）→ sha256 → 落入 `~/.config/no-swipe/bin/<version>/`。版本一致则跳过。skill 只调对应脚本，用户不选包
 20. **Windows**：发布说明写清未签名 exe 可能被 SmartScreen / 360 拦截；正式对外前尽量代码签名。未签名不得当作「安装失败」让 skill 去装 CLI
+21. **自动更新与发版流程**：插件壳依赖 Codex 官方机制——2026-04 起 Codex 对"configured Git marketplace"在插件启动/列表刷新时后台 `git ls-remote` 比对并**原子激活**新版本（openai/codex#17425），用户零操作，新开任务生效；桌面端 Ctrl+U / `codex plugin marketplace upgrade` 为手动兜底。二进制不做浮动更新，由 `config/cli-version.json` 钉死版本+sha256，随插件壳成对升级，引导脚本比对后自动换包。**发版纪律**：每次发布必须同时 bump `plugin.json` 与 `marketplace.json` 版本号（marketplace 靠 `version` 判断更新、缓存按版本目录激活，版本不 bump 会出现"推了代码行为没变"）。固定四步发版清单（可做成 CI 脚本）：bump 两处版本 → 更新 `cli-version.json` → 上传二进制到 Storage → push main
 
 ## Phase 5 — 插件与 skill（`no_swipe/plugins/no-swipe`）
 
@@ -194,6 +195,7 @@ sequenceDiagram
 | 12 | bun test 重写 collector 与 step 测试 | 3 |
 | 13 | 三平台 compile + sha256 manifest + 只读 Storage | 4 |
 | 14 | bootstrap.sh / bootstrap.ps1 按本机自动下载 | 4 |
+| 14a | 发版脚本：bump 双版本号 + cli-version + 上传二进制 + push（自动更新链路） | 4 |
 | 15 | 插件去掉 `.app.json`、全部默认 MCP、换域名、bump | 5 |
 | 16 | 重写 SKILL.md；删除 python / runtime CLI / runner.mjs | 5 |
 | 17 | 废弃或删除 `no_swipe/supabase` 副本 | 5 |

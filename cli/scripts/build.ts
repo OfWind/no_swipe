@@ -1,7 +1,14 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import path from "node:path";
 
-const version = "0.3.3";
+const version = JSON.parse(readFileSync(
+  path.resolve(import.meta.dir, "../../plugins/no-swipe/config/cli-version.json"),
+  "utf8",
+)).version;
+if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
+  throw new Error(`invalid cli-version.json: ${version}`);
+}
 const outDir = `dist/${version}`;
 mkdirSync(outDir, { recursive: true });
 

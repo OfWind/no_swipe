@@ -63,6 +63,15 @@ test("bootstrap scripts and cli version are packaged for the host binary", async
   assert.match(supabase.releases_base_url, /no-swipe-releases/);
 });
 
+test("marketplace and plugin versions stay paired for Codex cache activation", async () => {
+  const version = JSON.parse(await fs.readFile(path.join(ROOT, "config/cli-version.json"), "utf8")).version;
+  const plugin = JSON.parse(await fs.readFile(path.join(ROOT, ".codex-plugin/plugin.json"), "utf8"));
+  const marketplace = JSON.parse(await fs.readFile(path.join(ROOT, "../../.agents/plugins/marketplace.json"), "utf8"));
+  assert.equal(plugin.version.split("+", 1)[0], version);
+  assert.equal(marketplace.version, version);
+  assert.equal(marketplace.plugins[0].version, version);
+});
+
 test("product entrypoints do not contain the former test persona or implicit execution flags", async () => {
   const sources = await Promise.all([
     ".codex-plugin/plugin.json",
