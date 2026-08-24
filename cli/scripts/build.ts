@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
-const version = "0.3.2";
+const version = "0.3.3";
 const outDir = `dist/${version}`;
 mkdirSync(outDir, { recursive: true });
 
