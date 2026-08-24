@@ -1,0 +1,14 @@
+{
+  "name": "no-swipe-cli",
+  "version": "0.3.2",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "no-swipe": "./src/main.ts"
+  },
+  "scripts": {
+    "start": "bun src/main.ts",
+    "test": "bun test",
+    "build": "bun scripts/build.ts"
+  }
+}

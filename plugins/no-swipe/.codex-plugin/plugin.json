@@ -1,31 +1,29 @@
 {
   "name": "no-swipe",
-  "version": "0.2.6+codex.20260821124123",
-  "description": "OAuth-connected Douyin recommendation-feed RPA that uploads every user's durable observations to No Swipe Supabase.",
+  "version": "0.3.2+codex.20260824120000",
+  "description": "Device-paired Douyin recommendation-feed RPA that uploads observations to No Swipe Supabase.",
   "author": {
     "name": "No Swipe Team"
   },
-  "homepage": "https://no-swipe-mcp-production.up.railway.app/",
+  "homepage": "https://whislte.cc.cd/",
   "skills": "./skills/",
-  "apps": "./.app.json",
-  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "No Swipe",
-    "shortDescription": "\u4e00\u952e\u786e\u8ba4\u8d26\u53f7\u753b\u50cf\u4e0e\u63a8\u8350\u6d41\u7b56\u7565\u3002",
-    "longDescription": "\u5148\u786e\u8ba4 No Swipe \u4e0a\u4f20\u6388\u6743\uff0c\u518d\u6253\u5f00\u5f53\u524d\u767b\u5f55\u8d26\u53f7\u7684\u521b\u4f5c\u8005\u4e3b\u9875\u8bc6\u522b\u8d26\u53f7\uff0c\u5e76\u7528 Codex \u539f\u751f\u786e\u8ba4\u63a7\u4ef6\u5b8c\u6210\u753b\u50cf\u3001\u8fd0\u884c\u53c2\u6570\u4e0e\u6743\u9650\u786e\u8ba4\uff1b\u786e\u8ba4\u540e\u521b\u5efa\u6301\u7eed\u76ee\u6807\u5e76\u8fde\u7eed\u6267\u884c\u3002\u7528\u6237\u4e5f\u53ef\u8865\u5145\u6216\u5b8c\u5168\u66ff\u6362\u9884\u8bbe\u3002\u63d2\u4ef6\u6309\u7248\u672c\u5316\u89c4\u5219\u6267\u884c\u63a8\u8350\u6d41\u89c2\u5bdf\u3001\u4e92\u52a8\u3001\u4f5c\u8005\u4e3b\u9875\u8bc1\u636e\u6838\u9a8c\u3001\u589e\u91cf\u8bb0\u5f55\u548c\u6062\u590d\uff0c\u5e76\u5728\u8d26\u53f7\u4e0d\u5339\u914d\u3001\u9a8c\u8bc1\u7801\u3001\u9650\u6d41\u6216\u9875\u9762\u72b6\u6001\u4e0d\u53ef\u9760\u65f6\u505c\u6b62\u3002",
+    "shortDescription": "一键确认账号画像与推荐流策略。",
+    "longDescription": "先完成本机采集授权，再打开当前登录账号的创作者主页识别账号，并用对话确认画像与运行参数；确认后创建持续目标并连续执行。",
     "developerName": "No Swipe Team",
     "category": "Productivity",
     "capabilities": [
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://no-swipe-mcp-production.up.railway.app/",
-    "privacyPolicyURL": "https://no-swipe-mcp-production.up.railway.app/privacy",
-    "termsOfServiceURL": "https://no-swipe-mcp-production.up.railway.app/terms",
+    "websiteURL": "https://whislte.cc.cd/",
+    "privacyPolicyURL": "https://whislte.cc.cd/privacy",
+    "termsOfServiceURL": "https://whislte.cc.cd/terms",
     "defaultPrompt": [
-      "\u5148\u786e\u8ba4 No Swipe \u4e0a\u4f20\u6388\u6743\uff0c\u518d\u6253\u5f00\u5f53\u524d\u6296\u97f3\u8d26\u53f7\u4e3b\u9875\uff0c\u8ba9\u6211\u786e\u8ba4\u6216\u4fee\u6539\u9884\u8bbe\uff0c\u7136\u540e\u521b\u5efa\u76ee\u6807\u5e76\u8fde\u7eed\u6267\u884c\u3002",
-      "\u4f7f\u7528\u5df2\u786e\u8ba4\u7684\u8fd0\u884c\u914d\u7f6e\u5f00\u59cb\u6216\u6062\u590d\u63a8\u8350\u6d41\u91c7\u96c6\uff0c\u5e76\u6838\u9a8c\u8d26\u53f7\u3001\u914d\u7f6e\u54c8\u5e0c\u4e0e\u6301\u4e45\u5316\u72b6\u6001\u3002",
-      "\u5ba1\u8ba1\u591a\u6b21\u63a8\u8350\u6d41\u4efb\u52a1\u7684\u8ba1\u5212\u3001\u5c1d\u8bd5\u3001\u6210\u529f\u7ed3\u679c\u548c\u753b\u50cf\u7248\u672c\u3002"
+      "先确认 No Swipe 上传授权，再打开当前抖音账号主页，让我确认或修改预设，然后创建目标并连续执行。",
+      "使用已确认的运行配置开始或恢复推荐流采集，并核验账号、配置哈希与持久化状态。",
+      "审计多次推荐流任务的计划、尝试、成功结果和画像版本。"
     ],
     "brandColor": "#173F5F",
     "composerIcon": "./assets/no-swipe.svg",

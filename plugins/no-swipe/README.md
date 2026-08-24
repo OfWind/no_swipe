@@ -1,48 +1,12 @@
 # No Swipe
 
-No Swipe 是一个面向抖音推荐流测试的本地 Codex 插件，内置 `douyin-recommendation-rpa` skill。
-
-一个邮箱登录的 No Swipe 用户可以绑定多个抖音账号；每个抖音账号在 `.no-swipe/accounts/` 下维护独立、可版本化的画像，切换账号只选择对应画像，不替换其他账号文件。后续任务自动复用当前可见抖音账号的画像。首次建档时只展示一张自然语言预设卡，用一句普通对话等待用户确认或输入修改要求，不再填写逐字段表单。
-
-青年白领预设会把时长 60 秒及以下的视频放入立即处理通道：授权、配额和页面状态允许时点“不感兴趣”，否则立即划走；这类视频不进入观看、主页核验或正向互动池。
-
-运行配置使用 JSON Schema 和语义校验，收到用户确认后生成 `config_hash` 并创建一个持续 Goal。预设、页面文案、选择器、停留参数与停止信号都放在 `config/`；秘密不进入配置。默认权限全部开启，但必须收到明确确认，且动作仍受实际比例和总上限控制。
-
-## 本地验证
+本地 Codex 插件：抖音推荐流采集。安装走 marketplace；本机二进制由 `scripts/bootstrap.sh` / `bootstrap.ps1` 按平台自动下载。
 
 ```bash
-npm test
-npm run check
-node runtime/src/cli.mjs profile validate tests/fixtures/account-profile.example.json
-node runtime/src/cli.mjs profile list
-node runtime/src/cli.mjs run validate tests/fixtures/run-config.draft.example.json
+codex plugin marketplace add OfWind/no_swipe --ref main
+codex plugin add no-swipe@no-swipe-marketplace
 ```
 
-## 云端同步
+新开任务后说「开始刷推荐流」。首次会打开工作台配对页，邮箱 OTP 一次即可。
 
-插件把每条观察与上传 outbox 在同一 SQLite 事务提交。安装插件时，Codex 会尽量打开 No Swipe OAuth 页面；每次开始或恢复任务时，skill 还会在任何浏览器动作前调用 `get_upload_status`。未连接时该调用触发 OAuth，用户可用任意能接收验证码的邮箱登录并同意上传；已连接时无感继续。
-
-ChatGPT 订阅登录和 OpenAI API Key 只负责模型访问，不等于 No Swipe 授权。仅使用 API Key 的 Codex CLI 常常只加载 skill、不注册远程 MCP。此时 skill 不会让用户重新启用插件，而是自行执行 `codex mcp add no-swipe --url https://no-swipe-mcp-production.up.railway.app/mcp --oauth-resource https://no-swipe-mcp-production.up.railway.app/mcp`，确认 `codex mcp list` 后再调用 `codex mcp login no-swipe`。用户无需输入命令，只需在浏览器完成邮箱验证和授权。若 list 已有 `no-swipe` 但当前任务仍没有 `get_upload_status`，需要新开 Codex 任务。授权会被安全复用；卸载插件不会必然撤销服务授权。
-
-Runner 在每条 `processOne` 内把观察提交到 SQLite 和 durable outbox，刷流循环不再调用 collector `record`。CSV 和 Excel 不在采集时写入；用户要查看或交付时，再用 collector `export` 从 SQLite 生成。远端上传仍按 10 条或 60 秒微批，但不进入刷流循环：暂停、异常、交接或结束时由 collector `sync --force` 给出至多一批 `mcp_upload`，Codex 只负责调用 `ingest_observation_batch` 并 `mcp-ack`。任务结束且 `pending=0` 后调用 collector `finish` 关闭会话，避免下次目标不同时被未结束的旧会话拦住。积压恢复可暂停浏览器并以最大 100 条、400 KB 的有界批次补传。断网不影响采集；只有 `accepted` 或 `duplicated` 会标记为已发送。OAuth token 由 Codex 管理，不写入插件目录、SQLite 或导出文件。
-
-## 浏览器诊断
-
-推荐流读取出现 Browser/CDP 超时、tab 失效或卡片识别异常时，skill 才会读取按需诊断 reference，并可使用插件注册的 `npx -y chrome-devtools-mcp@latest` 做外部 Chrome 对照。该路径优先支持 macOS，需要本机有 Node.js/npm、`npx`、可访问 npm registry 的网络和官方 Google Chrome；首次初始化可能下载 npm 包。Codex 为发现工具可能在新任务开始时初始化 MCP Server，但 Chrome 通常到第一次浏览器工具调用才启动。插件传入 `--isolated`，因此使用不复用现有 Chrome 登录态的临时 profile；如需检查同一抖音登录态，必须由用户明确选择在该临时 Chrome 中登录。它不会因为同为 Chromium 内核就自动接管 Codex 内置 Browser。
-
-这是一条机会性诊断路径，不是保证修复器。工具缺失或启动失败时会记录“外部对照不可用”，继续用原 Browser 做分层只读诊断；诊断流程不得把这个可选对照当成 No Swipe 的启动或持久化门槛。是否恢复刷流仍由原 Browser 探针决定。安装或升级插件后必须新开 Codex 任务，新的 Skill 和 MCP 配置才会进入工具列表。
-
-## 安全边界
-
-- 仅使用用户已打开且已登录的推荐流页面。
-- 不绕过验证码、限流、登录或访问限制。
-- 一键确认预设即确认本轮权限；实际动作仍同时受比例、合格池和总上限控制。
-- 浏览器第一步打开当前登录账号的创作者主页，完成账号识别后再回到推荐流。
-- 已确认配置要求粉丝数、近期作品点赞稳定性或新发布时间证据时，点击当前推荐内容的作者头像或名称进入其公开主页，取证后可靠返回推荐流。
-- 计划、尝试、验证和实际成功结果分开记录，不用配额计划冒充真实结果。
-- 插件和远程 MCP 只使用 Supabase URL 与 publishable key；service role、Cookie、验证码和登录 token 不进入插件包、SQLite 或导出。
-- 未通过 `get_upload_status` 时不打开抖音、不创建 Goal、不启动 collector；MCP 服务端仍对每次工具请求重新验证 OAuth token。
-
-## 图标
-
-`assets/no-swipe.svg` 为 64×64 的轻量 SVG，可同时用作插件 logo 和 composer icon。
+Windows 上未签名的 `no-swipe.exe` 可能被 SmartScreen 或 360 拦截。这是本机信任提示，不是安装失败；不要改去安装 Node、Python 或 CLI 补丁。正式对外前尽量代码签名。

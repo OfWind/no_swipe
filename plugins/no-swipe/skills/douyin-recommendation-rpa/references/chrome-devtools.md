@@ -16,10 +16,10 @@ server is explicitly attached to the exact same browser endpoint under test.
 
 **Browser lifecycle:** The browser starts automatically on the first tool call.
 The plugin passes `--isolated`, so this comparison uses a temporary Chrome
-profile instead of reusing an existing or persistent login. CLI arguments are
-configured by the plugin's `.mcp.json`; inspect
-`npx chrome-devtools-mcp@latest --help` when an operator needs the current option
-reference.
+profile instead of reusing an existing or persistent login. This MCP server
+is not registered by the default plugin. Inspect
+`npx chrome-devtools-mcp@latest --help` only when an operator already has this
+optional diagnostic path.
 
 Codex may initialize the stdio MCP server when a new task discovers its tools,
 even though this reference is read only after an anomaly and Chrome itself is

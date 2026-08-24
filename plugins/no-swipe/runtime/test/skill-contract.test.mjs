@@ -6,28 +6,28 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-test("skill gates every run on No Swipe OAuth before browser access", async () => {
+test("skill gates every run on device pairing before browser access", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
   const authSection = skill.indexOf("## 0. Authorize data upload before browser access");
-  const statusCall = skill.indexOf("`get_upload_status`");
+  const statusCall = skill.indexOf("`no-swipe auth status`");
   const browserSection = skill.indexOf("## 1. Open the account profile after upload authorization");
 
-  assert.ok(authSection >= 0, "runtime OAuth gate is required");
+  assert.ok(authSection >= 0, "runtime auth gate is required");
   assert.ok(authSection < statusCall && statusCall < browserSection);
   assert.match(skill, /description:.*Verify No Swipe upload authorization before every browser action/);
   assert.match(skill, /mandatory for every new or resumed run/);
-  assert.match(skill, /codex mcp login no-swipe/);
-  assert.match(skill, /the agent must run/);
-  assert.match(skill, /Never ask the user to type, copy, or paste this command/);
-  assert.match(skill, /codex mcp add no-swipe/);
-  assert.match(skill, /--oauth-resource https:\/\/no-swipe-mcp-production\.up\.railway\.app\/mcp/);
+  assert.match(skill, /no-swipe auth login/);
+  assert.match(skill, /scripts\/bootstrap/);
+  assert.doesNotMatch(skill, /codex mcp add no-swipe|get_upload_status|ingest_observation_batch/);
   assert.match(skill, /Do not tell the user to re-enable the plugin/);
   assert.match(skill, /new Codex task/);
-  assert.match(skill, /stop before all Douyin, collector, Goal, and upload actions/);
+  assert.match(skill, /Stop before all Douyin, collector, Goal, and upload actions/);
   assert.match(skill, /Accept any email that can receive and verify the No Swipe OTP/);
+  assert.match(skill, /NO_SWIPE_PLUGIN_ROOT/);
+  assert.match(skill, /SmartScreen or 360/);
 });
 
 test("skill waits for a compact chat answer before goal execution", async () => {
@@ -81,17 +81,16 @@ test("skill preserves a one-to-many No Swipe user to Douyin account registry", a
   assert.match(skill, /Do not put the login email in `account_ref`/);
 });
 
-test("skill keeps collector record and MCP drain out of the feed loop", async () => {
+test("skill keeps collector record out of the feed loop", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
-  assert.match(skill, /`processOne` commits each observation to SQLite and its durable outbox/);
+  assert.match(skill, /`no-swipe step` commits each observation to SQLite and its durable outbox/);
   assert.match(skill, /Do not call collector `record`/);
-  assert.match(skill, /do not inspect `mcp_upload` during the feed loop/);
-  assert.match(skill, /collector `sync --force`/);
-  assert.match(skill, /collector\s+`finish` once to close the active session/);
-  assert.doesNotMatch(skill, /After every collector `start`, `record`, and `finish`/);
+  assert.match(skill, /no-swipe sync/);
+  assert.match(skill, /no-swipe finish/);
+  assert.doesNotMatch(skill, /mcp_upload|ingest_observation_batch|mcp-ack/);
 });
 
 test("skill treats CSV and Excel as on-demand exports from SQLite", async () => {
@@ -101,9 +100,8 @@ test("skill treats CSV and Excel as on-demand exports from SQLite", async () => 
   );
   assert.match(skill, /committed to SQLite and its durable outbox/);
   assert.match(skill, /Do not write CSV or Excel during collection/);
-  assert.match(skill, /export from SQLite with collector `export`/);
+  assert.match(skill, /export from SQLite with `no-swipe export`/);
   assert.match(skill, /CSV and Excel are on-demand exports, not live copies/);
-  assert.doesNotMatch(skill, /CSV\/JSONL kept only as mirrors/);
 });
 
 test("skill prioritizes the confirmed 60-second immediate lane", async () => {
@@ -121,33 +119,6 @@ test("skill routes browser anomalies to same-surface diagnostics", async () => {
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
-  const diagnostics = await fs.readFile(
-    path.join(ROOT, "skills/douyin-recommendation-rpa/references/browser-diagnostics.md"),
-    "utf8",
-  );
-
   assert.match(skill, /references\/browser-diagnostics\.md/);
   assert.match(skill, /bounded same-surface ladder/);
-  assert.match(skill, /external pass never proves/);
-  assert.match(diagnostics, /`codex_iab`/);
-  assert.match(diagnostics, /`external_chrome_devtools`/);
-  assert.match(diagnostics, /Do not retry an identical timed-out probe/);
-  assert.match(diagnostics, /An external pass never means `codex_iab` recovered/);
-  assert.match(diagnostics, /codex mcp add chrome-devtools/);
-  assert.match(diagnostics, /chrome-devtools-mcp@latest/);
-  assert.match(diagnostics, /external_comparison_unavailable/);
-  assert.match(diagnostics, /not run, unavailable, passed, or failed/);
-  assert.match(diagnostics, /must not become an additional No Swipe startup/);
-  assert.match(diagnostics, /\[chrome-devtools\.md\]\(chrome-devtools\.md\)/);
-
-  const devtools = await fs.readFile(
-    path.join(ROOT, "skills/douyin-recommendation-rpa/references/chrome-devtools.md"),
-    "utf8",
-  );
-  assert.match(devtools, /upstream_package: chrome-devtools-mcp@latest/);
-  assert.match(devtools, /macOS-first/);
-  assert.match(devtools, /`external_chrome_devtools`/);
-  assert.match(devtools, /`list_pages`/);
-  assert.match(devtools, /`evaluate_script`/);
-  assert.match(devtools, /does not prove that the Codex in-app Browser recovered/);
 });

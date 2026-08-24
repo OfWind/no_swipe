@@ -106,7 +106,7 @@ Interpret the comparison narrowly:
 | Simple JavaScript fails | Passes | The failure is scoped toward the original Browser binding/session/transport. |
 | Simple JavaScript passes; adapter DOM fails | Fails the same way | The Douyin page state, DOM variant, or probe cost is implicated. |
 | Simple JavaScript passes; adapter DOM fails | Passes | The original Browser environment or session remains implicated. |
-| Adapter DOM passes; only `getActiveCard()` fails | Passes | The No Swipe runner/projection is implicated. |
+| Adapter DOM passes; only `getActiveCard()` fails | Passes | The No Swipe step/projection is implicated. |
 
 An external pass never means `codex_iab` recovered. Chrome DevTools MCP can
 attach to the same browser only when that browser explicitly exposes a supported

@@ -11,5 +11,6 @@ outputs/
 .no-swipe/
 coverage/
 node_modules/
+cli/dist/
 __pycache__/
 *.pyc
