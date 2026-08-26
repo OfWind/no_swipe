@@ -29,7 +29,7 @@ This authorization gate is mandatory for every new or resumed run. Stop before a
 1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. It downloads only this machine's binary. Linux is not a release target.
 2. Run `no-swipe auth status`.
 3. When `connected=true`, continue to account resolution.
-4. When not connected, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The user completes email OTP and taps 同意授权 on that page. Wait until login prints `status=approved`, then retry `auth status` once.
+4. When not connected, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. Wait until login prints `status=approved`, then retry `auth status` once.
 5. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, device token, OTP, or email password.
 
 Do not tell the user to re-enable the plugin, install Codex CLI, Node, Python, or uv. If the binary is missing after bootstrap, start a **new Codex task** after plugin upgrade. On Windows, an unsigned `no-swipe.exe` may be blocked by SmartScreen or 360; treat that as a local trust prompt, not an install failure, and do not switch to a Node or Python workaround.
@@ -72,6 +72,8 @@ Free-form text is the customization path:
 
 `使用预设并开始` is explicit confirmation to bind the profile, confirm the run, create a durable Goal, and execute. `先不启动` ends without binding, confirming, creating a Goal, or operating the feed.
 
+This one confirmation is also the run-scoped, action-time authorization for every interaction in the sealed config: like, favorite, not interested, profile visits, and follow/comment candidates up to their confirmed rates and caps. During the feed loop, execute quota-assigned actions without any further chat question; treat the quota module's `confirmationRequired` markers for follow and comment as already satisfied by this confirmation. Pause for a new chat question only when an action would exceed the sealed config, evidence is contradictory, or a safety stop triggers. Report executed interactions in Goal status updates instead of asking per item.
+
 For an already-bound account, replace the onboarding copy with one line naming the reused profile and revision, then ask for `沿用并开始`、修改要求或`先不启动`. Free-form text creates a profile revision only for durable persona changes; target and interaction edits remain run-scoped.
 
 ## 3. Materialize and seal the decision
@@ -84,7 +86,7 @@ no-swipe config preset materialize ../../config/presets/douyin-youth-white-colla
   --output-dir .no-swipe/drafts/<run-id>
 ```
 
-Bind revision 1 only after the structured confirmation. For an existing account, embed its current profile snapshot and apply the confirmed run overrides without replacing the profile.
+Bind revision 1 only after the structured confirmation. For an existing account, pass `--profile-mode replace --profile-input <that account's current.json>`: materialize preserves the input profile's `revision` and `created_at`, so the embedded snapshot matches the bound revision without a manual snapshot step. `--revision <n>` is available to pin the revision explicitly. Apply the confirmed run overrides without replacing the profile.
 
 For free-form input, select `profile-mode` and `run-mode` independently:
 
@@ -143,6 +145,7 @@ Runtime gates remain mandatory:
 - validate `status=confirmed` and `config_hash` before feed actions;
 - enforce rates, caps, and permissions together;
 - record planned, attempted, verified, and actual separately;
+- do not pause the loop for per-item chat confirmation; the sealed confirmation from section 2 is the action-time authorization;
 - stop on account mismatch, CAPTCHA, rate limits, login gates, unreliable DOM, or failed feed transition.
 
 On a timed-out page read, `browser unavailable`, stale/detached tab, unreliable

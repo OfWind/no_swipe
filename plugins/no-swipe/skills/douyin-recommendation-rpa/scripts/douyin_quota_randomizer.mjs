@@ -409,7 +409,8 @@ export class DouyinQuotaPolicy {
         favorite,
         watchToEnd,
         comment: commentCandidate,
-        // 关注只是候选，实际动作必须当次确认，因此这里始终为false。
+        // 关注只是候选；实际动作由运行开始时封存的一次性分组确认授权，
+        // 执行前仍需核验入口与上限，因此计划位始终为false。
         follow: false,
         notInterested,
       },

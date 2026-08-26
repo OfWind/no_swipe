@@ -458,7 +458,7 @@ export function materializeOnboardingPreset(preset, {
   accountRef,
   profileId,
   runId,
-  revision = 1,
+  revision,
   timestamp = new Date().toISOString(),
   profileMode = "preset",
   profileInput,
@@ -471,15 +471,17 @@ export function materializeOnboardingPreset(preset, {
   }
   const profileDecision = applyDecisionMode(preset.profile, profileMode, profileInput, "profile");
   const runDecision = applyDecisionMode(preset.run_defaults, runMode, runInput, "run");
+  // 已有账号通过 profile-input 传入当前画像时，保留其 revision 和 created_at，
+  // 避免物化结果回退到 revision 1。
   const profile = {
     ...profileDecision,
     schema_version: CONTRACT_VERSION,
     profile_id: profileId,
     platform: "douyin",
     account_ref: accountRef,
-    revision,
-    created_at: timestamp,
-    updated_at: timestamp,
+    revision: revision ?? profileDecision.revision ?? 1,
+    created_at: profileDecision.created_at ?? timestamp,
+    updated_at: profileDecision.updated_at ?? timestamp,
   };
   validateAccountProfile(profile);
   const runConfig = {

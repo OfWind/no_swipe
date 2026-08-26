@@ -56,10 +56,12 @@ export async function runConfig(args: string[]) {
   if (resource === "preset" && command === "materialize") {
     const profileInputPath = option(args, "--profile-input");
     const runInputPath = option(args, "--run-input");
+    const revisionOption = option(args, "--revision");
     const materialized = materializeOnboardingPreset(value, {
       accountRef: option(args, "--account-ref"),
       profileId: option(args, "--profile-id"),
       runId: option(args, "--run-id"),
+      revision: revisionOption === undefined ? undefined : Number(revisionOption),
       profileMode: option(args, "--profile-mode") || "preset",
       profileInput: profileInputPath ? await readJson(profileInputPath) : undefined,
       runMode: option(args, "--run-mode") || "preset",

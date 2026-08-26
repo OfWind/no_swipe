@@ -95,7 +95,30 @@ test("replace mode has zero preset influence in the replaced scope", async () =>
   assert.deepEqual(result.profile.negative_topics, ["婚庆接单"]);
   assert.equal(result.profile.creator_rules, undefined);
   assert.equal(result.profile.content_rules, undefined);
-  assert.equal(result.run_config.goal.observed_target, 100);
+  assert.equal(result.run_config.goal.observed_target, 1000);
+});
+
+test("materialize preserves the revision and created_at of an existing profile input", async () => {
+  const preset = await read("config/presets/douyin-youth-white-collar.v1.json");
+  const existingProfile = materializeOnboardingPreset(preset, {
+    accountRef: "douyin:82338116099",
+    profileId: "profile-82338116099",
+    runId: "run-existing-base",
+    timestamp: "2026-08-13T08:00:00.000Z",
+  }).profile;
+  existingProfile.revision = 2;
+  existingProfile.updated_at = "2026-08-20T08:00:00.000Z";
+  const result = materializeOnboardingPreset(preset, {
+    accountRef: "douyin:82338116099",
+    profileId: "profile-82338116099",
+    runId: "run-existing-test",
+    timestamp: "2026-08-26T08:00:00.000Z",
+    profileMode: "replace",
+    profileInput: existingProfile,
+  });
+  assert.equal(result.profile.revision, 2);
+  assert.equal(result.profile.created_at, "2026-08-13T08:00:00.000Z");
+  assert.equal(result.run_config.interest_profile.revision, 2);
 });
 
 test("replace mode rejects an omitted replacement object", async () => {

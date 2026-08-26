@@ -59,7 +59,7 @@ async function main(args: string[]) {
   }
   const db = option(args, "--db") || ".no-swipe/runs/current/douyin_rpa_session.sqlite";
   if (command === "start") {
-    print(startSession(db, Number(option(args, "--target") || 100), args.includes("--all-videos") ? "observed" : "relevant", args.includes("--new")));
+    print(startSession(db, Number(option(args, "--target") || 1000), args.includes("--all-videos") ? "observed" : "relevant", args.includes("--new")));
     return 0;
   }
   if (command === "record") {
