@@ -39,15 +39,14 @@ tools are unavailable or Chrome cannot launch, No Swipe records the comparison
 as unavailable and continues the original Browser diagnostic ladder. The
 workflow must not treat this optional comparison as a startup or persistence
 gate; the original Browser probe still decides whether feed actions may resume.
-Install or update the plugin, then start a new Codex task so the new Skill and
-MCP configuration are loaded.
+A new Codex task loads the activated Skill and MCP configuration after the
+host has refreshed the marketplace.
 
 ## Update
 
-```bash
-codex plugin marketplace upgrade no-swipe-marketplace
-codex plugin add no-swipe@no-swipe-marketplace
-```
+A Git marketplace install updates itself. Codex compares `main` when the plugin host starts, activates the new shell, and the next new task runs `scripts/bootstrap.sh` or `bootstrap.ps1` to fetch the matching binary. Users do not type upgrade commands, and the agent does not ask them to.
+
+First-time install still uses the two commands in [Install](#install), then a new task.
 
 ## Repository layout
 

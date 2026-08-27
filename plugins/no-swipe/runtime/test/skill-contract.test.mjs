@@ -25,8 +25,10 @@ test("skill gates every run on device pairing before browser access", async () =
   assert.match(skill, /Unless the user explicitly asks for another browser/);
   assert.match(skill, /scripts\/bootstrap/);
   assert.doesNotMatch(skill, /codex mcp add no-swipe|get_upload_status|ingest_observation_batch/);
+  assert.match(skill, /Keep plugin and binary updates inside bootstrap/);
   assert.match(skill, /Do not tell the user to re-enable the plugin/);
   assert.match(skill, /new Codex task/);
+  assert.doesNotMatch(skill, /codex plugin marketplace upgrade|codex plugin add /);
   assert.match(skill, /Stop before all Douyin, collector, Goal, and upload actions/);
   assert.match(skill, /Accept any email that can receive and verify the No Swipe OTP/);
   assert.match(skill, /NO_SWIPE_PLUGIN_ROOT/);

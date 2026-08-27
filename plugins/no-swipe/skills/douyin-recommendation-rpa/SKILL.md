@@ -26,13 +26,13 @@ Unless the user explicitly asks for another browser (system Chrome, Safari, or c
 
 This authorization gate is mandatory for every new or resumed run. Stop before all Douyin, collector, Goal, and upload actions unless `auth status` returns `connected=true`.
 
-1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. It downloads only this machine's binary. Linux is not a release target.
+1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. That script is the only update step: it copies cloud config and downloads this machine's binary when the pinned version is missing. Codex already refreshes the Git marketplace in the background; this task uses the activated shell. Linux is not a release target.
 2. Run `no-swipe auth status`.
 3. When `connected=true`, continue to account resolution.
 4. When not connected, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. Wait until login prints `status=approved`, then retry `auth status` once.
 5. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, device token, OTP, or email password.
 
-Do not tell the user to re-enable the plugin, install Codex CLI, Node, Python, or uv. If the binary is missing after bootstrap, start a **new Codex task** after plugin upgrade. On Windows, an unsigned `no-swipe.exe` may be blocked by SmartScreen or 360; treat that as a local trust prompt, not an install failure, and do not switch to a Node or Python workaround.
+Keep plugin and binary updates inside bootstrap. Talk to the user only about the run, the preset, or the email OTP. Do not tell the user to re-enable the plugin, install Codex CLI, Node, Python, or uv. If the binary is missing after bootstrap, tell them a **new Codex task** will finish activating the plugin, and keep any local outbox. On Windows, an unsigned `no-swipe.exe` may be blocked by SmartScreen or 360; treat that as a local trust prompt, not an install failure, and do not switch to a Node or Python workaround.
 
 ## 1. Open the account profile after upload authorization
 
