@@ -1,10 +1,10 @@
-# No Swipe 交互流程（0.3.7）
+# No Swipe 交互流程（0.3.8）
 
 > 日期：2026-08-27  
 > 范围：插件安装 → 本机二进制 → 设备配对 → 推荐流采集 → 上传 → 工作台回看  
 > 工作台：`https://whislte.cc.cd`  
 > 权威 skill：`plugins/no-swipe/skills/douyin-recommendation-rpa/SKILL.md`  
-> 本文描述**现行实现**，不是架构草案。配对页自动授权、`start` 默认 1000 条 observed、follow 走配额 `plannedActions`、静默自动更新，均已按 0.3.7 落地。
+> 本文描述**现行实现**，不是架构草案。配对页自动授权、`start` 默认 1000 条 observed、follow 走配额 `plannedActions`、静默自动更新、刷流不进创作者主页，均已按 0.3.8 落地。
 
 读图约定：实线是请求/动作，虚线是轮询或异步结果。菱形是分支。`nsd_` 是设备 token 前缀。
 
@@ -161,7 +161,7 @@ sequenceDiagram
   participant Disk as ~/.config/no-swipe/bin/版本
 
   User->>Codex: 安装 / 启用 no-swipe 插件
-  Codex->>Mkt: 读插件版本 0.3.7
+  Codex->>Mkt: 读插件版本 0.3.8
   Codex->>Plug: 检出技能、预设、引导脚本
   Note over Codex,Plug: 新开任务才激活新插件壳；二进制不随浮动 tag 更新
 
@@ -174,7 +174,7 @@ sequenceDiagram
     Boot->>Stor: GET manifest.json + 本机平台 .gz
     Stor-->>Boot: gzip 包 + sha256
     Boot->>Boot: 校验 sha256，解压 chmod 755
-    Boot-->>Codex: path= ~/.config/no-swipe/bin/0.3.7/no-swipe
+    Boot-->>Codex: path= ~/.config/no-swipe/bin/0.3.8/no-swipe
   end
 ```
 
@@ -635,3 +635,4 @@ Agent **不要**做的事：向用户要 OpenAI Key、设备 token、OTP、邮�
 |---|---|---|
 | 2026-08-27 | 0.3.6 | 按已发布实现整理全链路交互：自动配对、observed 默认、配额 follow、Storage 分发 |
 | 2026-08-27 | 0.3.7 | 静默自动更新：新开任务走 bootstrap，用户不再输入 upgrade 命令 |
+| 2026-08-27 | 0.3.8 | 刷流与认号都不打开创作者主页，缺证据在推荐流上报空值 |

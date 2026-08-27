@@ -1,6 +1,6 @@
 ---
 name: douyin-recommendation-rpa
-description: Configure, run, resume, or audit a Douyin recommendation-feed session for the logged-in account. Verify No Swipe upload authorization before every browser action, then open the account's creator profile, reuse its versioned persona, offer a compact natural-language preset or free-form customization, wait for the user's chat confirmation, create a durable Goal, and execute the confirmed rates and permissions. Use for 刷抖音推荐流、训练账号画像、采集推荐视频、设置点赞收藏关注率、恢复任务 or audit/export results.
+description: Configure, run, resume, or audit a Douyin recommendation-feed session for the logged-in account. Verify No Swipe upload authorization before every browser action, then read the visible logged-in Douyin identity on the current page, reuse its versioned persona, offer a compact natural-language preset or free-form customization, wait for the user's chat confirmation, create a durable Goal, and execute the confirmed rates and permissions. Never open a creator homepage. Use for 刷抖音推荐流、训练账号画像、采集推荐视频、设置点赞收藏关注率、恢复任务 or audit/export results.
 ---
 
 # Douyin Recommendation RPA
@@ -34,14 +34,13 @@ This authorization gate is mandatory for every new or resumed run. Stop before a
 
 Keep plugin and binary updates inside bootstrap. Talk to the user only about the run, the preset, or the email OTP. Do not tell the user to re-enable the plugin, install Codex CLI, Node, Python, or uv. If the binary is missing after bootstrap, tell them a **new Codex task** will finish activating the plugin, and keep any local outbox. On Windows, an unsigned `no-swipe.exe` may be blocked by SmartScreen or 360; treat that as a local trust prompt, not an install failure, and do not switch to a Node or Python workaround.
 
-## 1. Open the account profile after upload authorization
+## 1. Resolve the logged-in account after upload authorization
 
-Attach to the user's logged-in Douyin tab. The first browser action is to open the current logged-in account's own creator homepage when it is not already open:
+Attach to the user's logged-in Douyin tab. Stay on the current Douyin surface. Never open a creator homepage—own or another account—because leaving the feed for a profile can bias later recommendations toward that person.
 
-1. Use the visible account/avatar/profile entry; do not guess a private URL.
-2. Read the visible nickname and Douyin ID from that homepage.
-3. Build `account_ref` from the visible Douyin ID and resolve only that account under `.no-swipe/accounts/`.
-4. Stay on the homepage until account resolution and preset confirmation finish.
+1. Read the visible nickname and Douyin ID from the current page chrome, account menu, or avatar label; do not guess a private URL and do not navigate to `/user/` or any creator profile.
+2. Build `account_ref` from the visible Douyin ID and resolve only that account under `.no-swipe/accounts/`.
+3. Stay on this surface until account resolution and preset confirmation finish.
 
 Stop before feed actions when identity is unreliable, the resolved account differs from the visible account, or a verification/access-limit page appears.
 
@@ -61,7 +60,7 @@ End the current turn with this one compact chat question:
 
 > 请回复“使用预设并开始”，或直接写修改要求；回复“先不启动”则保持账号画像、运行配置和推荐流不变。
 
-Keep the browser on the account homepage and perform no feed action while waiting. Treat the next user message as the answer and resume preparation from it.
+Keep the browser on the current Douyin surface and perform no feed action while waiting. Treat the next user message as the answer and resume preparation from it.
 
 Free-form text is the customization path:
 
@@ -72,7 +71,7 @@ Free-form text is the customization path:
 
 `使用预设并开始` is explicit confirmation to bind the profile, confirm the run, create a durable Goal, and execute. `先不启动` ends without binding, confirming, creating a Goal, or operating the feed.
 
-This one confirmation is also the run-scoped, action-time authorization for every interaction in the sealed config: like, favorite, not interested, profile visits, and follow/comment candidates up to their confirmed rates and caps. During the feed loop, execute `plannedActions` (including `follow` when the quota marks that creator as a candidate) without any further chat question. Pause for a new chat question only when an action would exceed the sealed config, evidence is contradictory, or a safety stop triggers. Report executed interactions in Goal status updates instead of asking per item.
+This one confirmation is also the run-scoped, action-time authorization for like, favorite, not interested, and follow/comment candidates up to their confirmed rates and caps. Never open a creator homepage, even when the sealed config sets `profile_visit` or `profile_sampling`. During the feed loop, execute `plannedActions` (including `follow` when the quota marks that creator as a candidate) without any further chat question. Pause for a new chat question only when an action would exceed the sealed config, evidence is contradictory, or a safety stop triggers. Report executed interactions in Goal status updates instead of asking per item.
 
 For an already-bound account, replace the onboarding copy with one line naming the reused profile and revision, then ask for `沿用并开始`、修改要求或`先不启动`. Free-form text creates a profile revision only for durable persona changes; target and interaction edits remain run-scoped.
 
@@ -132,13 +131,11 @@ Return to the recommendation feed only after confirmation. Follow the versioned 
 - Apply a configured short-video rule before topic, like-count, creator-profile, completion, or positive-interaction handling. For the preset, a reliably measured video duration of 60 seconds or less enters the immediate lane: attempt not interested only when the confirmed authorization, quota, cap, and page state all allow it; otherwise swipe immediately. Do not wait, visit the creator homepage, or allocate like, favorite, comment, follow, or completion actions. When duration is missing or unreliable, continue through the ordinary rules rather than inferring a short video.
 - Negative lane or excluded creator type: click not interested only when the classification is reliable.
 - Other lanes: treat as watchable without requiring a positive keyword hit.
-- Visible likes below the configured threshold: swipe directly unless visible feed time or the creator's work list confirms the video is newly published.
-- High relevance: open that video's creator homepage when follower count or recent-like stability evidence is missing. Require the configured follower range and a relatively stable recent-like pattern before high-tier like, favorite, or follow allocation.
+- Visible likes below the configured threshold: swipe directly unless the visible feed timestamp confirms the video is newly published. Do not open a creator homepage to inspect the work list.
+- High relevance: only when follower count and recent-like stability are visible on the feed card. If that evidence is missing, keep observing and do not infer high relevance. Do not open the creator homepage.
 - Evidence missing or ambiguous: keep observing; do not infer high relevance or click not interested.
 
-Profile inspection is evidence collection, not a quota action. Return to the same feed item or a reliably identified next item before continuing.
-
-Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. For each item, send visible page facts to `no-swipe step --db <sqlite> --json-file <payload.json>`. `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`. When it returns `status=needs_evidence`, open the author homepage, collect `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` (use `null` rather than guessing), and recall `step` with the same `record_id`. Do not call collector `record` during the feed loop.
+Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. For each item, send visible page facts to `no-swipe step --db <sqlite> --json-file <payload.json>`. `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`. When it returns `status=needs_evidence`, stay on the feed, recall `step` with the same `record_id` and `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` set to `null`, and continue. Do not call collector `record` during the feed loop.
 
 Runtime gates remain mandatory:
 
@@ -146,6 +143,7 @@ Runtime gates remain mandatory:
 - enforce rates, caps, and permissions together;
 - record planned, attempted, verified, and actual separately;
 - do not pause the loop for per-item chat confirmation; the sealed confirmation from section 2 is the action-time authorization;
+- never open a creator homepage;
 - stop on account mismatch, CAPTCHA, rate limits, login gates, unreliable DOM, or failed feed transition.
 
 On a timed-out page read, `browser unavailable`, stale/detached tab, unreliable

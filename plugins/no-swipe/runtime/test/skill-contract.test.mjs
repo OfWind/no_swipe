@@ -13,7 +13,7 @@ test("skill gates every run on device pairing before browser access", async () =
   );
   const authSection = skill.indexOf("## 0. Authorize data upload before browser access");
   const statusCall = skill.indexOf("`no-swipe auth status`");
-  const browserSection = skill.indexOf("## 1. Open the account profile after upload authorization");
+  const browserSection = skill.indexOf("## 1. Resolve the logged-in account after upload authorization");
 
   assert.ok(authSection >= 0, "runtime auth gate is required");
   assert.ok(authSection < statusCall && statusCall < browserSection);
@@ -117,6 +117,16 @@ test("skill prioritizes the confirmed 60-second immediate lane", async () => {
   assert.match(skill, /60 seconds or less enters the immediate lane/);
   assert.match(skill, /otherwise swipe immediately/);
   assert.match(skill, /Do not wait, visit the creator homepage, or allocate like/);
+});
+
+test("skill never opens a creator homepage for identity or evidence", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  assert.match(skill, /Never open a creator homepage/);
+  assert.match(skill, /recall `step` with the same `record_id` and `creatorFollowerCount`/);
+  assert.doesNotMatch(skill, /open the author homepage|open that video's creator homepage|Stay on the homepage/);
 });
 
 test("skill routes browser anomalies to same-surface diagnostics", async () => {
