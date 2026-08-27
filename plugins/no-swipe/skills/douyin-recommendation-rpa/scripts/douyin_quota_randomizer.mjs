@@ -409,9 +409,7 @@ export class DouyinQuotaPolicy {
         favorite,
         watchToEnd,
         comment: commentCandidate,
-        // 关注只是候选；实际动作由运行开始时封存的一次性分组确认授权，
-        // 执行前仍需核验入口与上限，因此计划位始终为false。
-        follow: false,
+        follow: followCandidate,
         notInterested,
       },
       completionEligible,
@@ -419,8 +417,8 @@ export class DouyinQuotaPolicy {
       followCandidateNewlyAssigned,
       commentCandidate,
       confirmationRequired: {
-        follow: followCandidate,
-        comment: commentCandidate,
+        follow: false,
+        comment: false,
       },
       noProfileNavigation: true,
       reason: relevance === "none"

@@ -20,6 +20,13 @@ function option(args: string[], name: string) {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
+function parseRevision(raw: string | undefined) {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) throw new Error("revision must be a positive integer");
+  return value;
+}
+
 export async function runConfig(args: string[]) {
   const [resource, command, filePath] = args;
   const fileRequired = !(resource === "profile" && command === "list");
@@ -61,7 +68,7 @@ export async function runConfig(args: string[]) {
       accountRef: option(args, "--account-ref"),
       profileId: option(args, "--profile-id"),
       runId: option(args, "--run-id"),
-      revision: revisionOption === undefined ? undefined : Number(revisionOption),
+      revision: parseRevision(revisionOption),
       profileMode: option(args, "--profile-mode") || "preset",
       profileInput: profileInputPath ? await readJson(profileInputPath) : undefined,
       runMode: option(args, "--run-mode") || "preset",

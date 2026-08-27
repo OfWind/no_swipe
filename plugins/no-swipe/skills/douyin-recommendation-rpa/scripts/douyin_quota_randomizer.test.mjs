@@ -113,8 +113,8 @@ for (let index = 1; index <= 20; index += 1) {
 }
 assert.equal(followDecisions.filter((item) => item.followCandidate).length, 1);
 assert.equal(followDecisions.filter((item) => item.followCandidateNewlyAssigned).length, 1);
-assert.equal(followDecisions.filter((item) => item.plannedActions.follow).length, 0);
-assert.equal(followDecisions.filter((item) => item.confirmationRequired.follow).length, 1);
+assert.equal(followDecisions.filter((item) => item.plannedActions.follow).length, 1);
+assert.equal(followDecisions.filter((item) => item.confirmationRequired.follow).length, 0);
 assert.equal(followPolicy.summary().planned.uniqueFollowCandidates, 1);
 
 const selectedFollowDecision = followDecisions.find((item) => item.followCandidate);

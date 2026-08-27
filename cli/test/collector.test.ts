@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadCloudConfig } from "../src/cloud.ts";
@@ -124,4 +124,68 @@ test("step asks for evidence then commits", () => {
   });
   expect(second.status).toBe("committed");
   expect(second.upload.pending).toBe(1);
+});
+
+test("start CLI defaults to 1000 observed videos", () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
+  const proc = Bun.spawnSync(["bun", "src/main.ts", "start", "--db", dbPath], {
+    cwd: path.resolve(import.meta.dir, ".."),
+  });
+  expect(proc.exitCode).toBe(0);
+  const started = JSON.parse(new TextDecoder().decode(proc.stdout));
+  expect(started.count_mode).toBe("observed");
+  expect(started.target).toBe(1000);
+});
+
+test("materialize preserves revision from profile-input and rejects a bad --revision", async () => {
+  const previous = process.env.NO_SWIPE_PLUGIN_ROOT;
+  const pluginRoot = path.resolve(import.meta.dir, "../../plugins/no-swipe");
+  const dir = mkdtempSync(path.join(tmpdir(), "no-swipe-rev-"));
+  process.env.NO_SWIPE_PLUGIN_ROOT = pluginRoot;
+  const first = await runConfig([
+    "preset",
+    "materialize",
+    path.join(pluginRoot, "config/presets/douyin-youth-white-collar.v1.json"),
+    "--account-ref",
+    "douyin:test",
+    "--profile-id",
+    "profile-test",
+    "--run-id",
+    "run-base",
+  ]) as { profile: { revision: number; created_at: string } };
+  first.profile.revision = 2;
+  const inputPath = path.join(dir, "current.json");
+  writeFileSync(inputPath, `${JSON.stringify(first.profile)}\n`);
+  const second = await runConfig([
+    "preset",
+    "materialize",
+    path.join(pluginRoot, "config/presets/douyin-youth-white-collar.v1.json"),
+    "--account-ref",
+    "douyin:test",
+    "--profile-id",
+    "profile-test",
+    "--run-id",
+    "run-next",
+    "--profile-mode",
+    "replace",
+    "--profile-input",
+    inputPath,
+  ]) as { profile: { revision: number; created_at: string } };
+  expect(second.profile.revision).toBe(2);
+  expect(second.profile.created_at).toBe(first.profile.created_at);
+  await expect(runConfig([
+    "preset",
+    "materialize",
+    path.join(pluginRoot, "config/presets/douyin-youth-white-collar.v1.json"),
+    "--account-ref",
+    "douyin:test",
+    "--profile-id",
+    "profile-test",
+    "--run-id",
+    "run-bad",
+    "--revision",
+    "nope",
+  ])).rejects.toThrow("revision must be a positive integer");
+  if (previous === undefined) delete process.env.NO_SWIPE_PLUGIN_ROOT;
+  else process.env.NO_SWIPE_PLUGIN_ROOT = previous;
 });

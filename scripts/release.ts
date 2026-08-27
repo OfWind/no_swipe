@@ -113,7 +113,7 @@ function commitAndMaybePush(version: string, push: boolean) {
 }
 
 function usage() {
-  console.log("usage: bun scripts/release.ts <x.y.z> [--push] [--skip-tests] [--skip-build] [--skip-upload] [--skip-commit] [--supabase-workdir <path>]");
+  console.log("usage: bun scripts/release.ts <x.y.z> [--push] [--reuse-version] [--skip-tests] [--skip-build] [--skip-upload] [--skip-commit] [--supabase-workdir <path>]");
 }
 
 const args = process.argv.slice(2);
@@ -128,14 +128,24 @@ const workdirIndex = args.indexOf("--supabase-workdir");
 const workdir = workdirIndex >= 0 ? path.resolve(args[workdirIndex + 1]) : supabaseWorkdir();
 
 const current = readJson(CLI_VERSION_PATH).version;
-if (current === version) throw new Error(`${version} is already the current cli-version`);
-
-bumpVersions(version);
+if (current === version && !flags.has("--reuse-version")) {
+  throw new Error(`${version} is already the current cli-version; pass --reuse-version to rebuild and upload it`);
+}
+if (current !== version) bumpVersions(version);
 if (!flags.has("--skip-tests")) {
   run(["bun", "test"], path.join(ROOT, "cli"));
   run(["node", "--test"], path.join(ROOT, "plugins/no-swipe"));
 }
 if (!flags.has("--skip-build")) run(["bun", "scripts/build.ts"], path.join(ROOT, "cli"));
 if (!flags.has("--skip-upload")) upload(version, workdir);
-if (!flags.has("--skip-commit")) commitAndMaybePush(version, flags.has("--push"));
-console.log(JSON.stringify({ ok: true, version, pushed: flags.has("--push") }, null, 2));
+if (!flags.has("--skip-commit")) {
+  try {
+    commitAndMaybePush(version, flags.has("--push"));
+  } catch (error) {
+    if (!flags.has("--reuse-version") || !String(error instanceof Error ? error.message : error).includes("nothing staged")) {
+      throw error;
+    }
+    if (flags.has("--push")) run(["git", "push", "origin", "HEAD"]);
+  }
+}
+console.log(JSON.stringify({ ok: true, version, reused: current === version, pushed: flags.has("--push") }, null, 2));

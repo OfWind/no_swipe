@@ -72,7 +72,7 @@ Free-form text is the customization path:
 
 `使用预设并开始` is explicit confirmation to bind the profile, confirm the run, create a durable Goal, and execute. `先不启动` ends without binding, confirming, creating a Goal, or operating the feed.
 
-This one confirmation is also the run-scoped, action-time authorization for every interaction in the sealed config: like, favorite, not interested, profile visits, and follow/comment candidates up to their confirmed rates and caps. During the feed loop, execute quota-assigned actions without any further chat question; treat the quota module's `confirmationRequired` markers for follow and comment as already satisfied by this confirmation. Pause for a new chat question only when an action would exceed the sealed config, evidence is contradictory, or a safety stop triggers. Report executed interactions in Goal status updates instead of asking per item.
+This one confirmation is also the run-scoped, action-time authorization for every interaction in the sealed config: like, favorite, not interested, profile visits, and follow/comment candidates up to their confirmed rates and caps. During the feed loop, execute `plannedActions` (including `follow` when the quota marks that creator as a candidate) without any further chat question. Pause for a new chat question only when an action would exceed the sealed config, evidence is contradictory, or a safety stop triggers. Report executed interactions in Goal status updates instead of asking per item.
 
 For an already-bound account, replace the onboarding copy with one line naming the reused profile and revision, then ask for `沿用并开始`、修改要求或`先不启动`. Free-form text creates a profile revision only for durable persona changes; target and interaction edits remain run-scoped.
 
