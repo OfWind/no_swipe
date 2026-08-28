@@ -1,6 +1,6 @@
 ---
 name: douyin-recommendation-rpa
-description: Configure, run, resume, or audit a Douyin recommendation-feed session for the logged-in account. Verify No Swipe upload authorization before every browser action, then read the visible logged-in Douyin identity on the current page, reuse its versioned persona, offer a compact natural-language preset or free-form customization, wait for the user's chat confirmation, create a durable Goal, and execute the confirmed rates and permissions. Never open a creator homepage. Use for 刷抖音推荐流、训练账号画像、采集推荐视频、设置点赞收藏关注率、恢复任务 or audit/export results.
+description: Configure, run, resume, or audit a Douyin recommendation-feed session for the logged-in account. Verify No Swipe upload authorization before every browser action, then read the visible logged-in Douyin identity on the current page, reuse its versioned persona, offer a compact natural-language preset or free-form customization, wait for the user's chat confirmation, create a durable Goal, and execute the confirmed rates and permissions. Open the logged-in account's own profile only when its Douyin ID is not visible on the current surface; never open another creator's homepage. Use for 刷抖音推荐流、训练账号画像、采集推荐视频、设置点赞收藏关注率、恢复任务 or audit/export results.
 ---
 
 # Douyin Recommendation RPA
@@ -35,11 +35,13 @@ Keep plugin and binary updates inside bootstrap. Talk to the user only about the
 
 ## 1. Resolve the logged-in account after upload authorization
 
-Attach to the user's logged-in Douyin tab. Stay on the current Douyin surface. Never open a creator homepage—own or another account—because leaving the feed for a profile can bias later recommendations toward that person.
+Attach to the user's logged-in Douyin tab. Identity comes from the logged-in account itself, never from feed content: the active feed card's author avatar is not an identity source, and another creator's homepage must never be opened because leaving the feed for a creator profile can bias later recommendations toward that person.
 
-1. Read the visible nickname and Douyin ID only from the current page chrome, account menu, or logged-in-account avatar region—not the active feed card's author avatar; do not guess a private URL and do not navigate to `/user/` or any creator profile.
-2. Build `account_ref` from the visible Douyin ID and resolve only that account under `.no-swipe/accounts/`.
-3. Stay on this surface until account resolution and preset confirmation finish.
+1. Read the visible nickname and Douyin ID from the current page chrome, account menu, or logged-in-account avatar region first.
+2. When the Douyin ID is not visible there, open the logged-in account's own profile page through a visible entry (the avatar or account menu; never a guessed `/user/` URL). This own-profile visit is identity-only: read the visible nickname and Douyin ID, then return to the recommendation feed and confirm the feed is active before any feed action. This applies to the first bind and to every later session's identity check alike.
+3. Ask the user for the Douyin ID in chat only after both the current surface and the own profile page fail to show it.
+4. Build `account_ref` from the visible Douyin ID and resolve only that account under `.no-swipe/accounts/`. A resolved ID that differs from a previously bound `account_ref` means the Douyin account was switched: select or create its sibling account directory, never update the old account's profile.
+5. Stay on the account-resolution surface until preset confirmation finishes.
 
 Treat Douyin as a SPA. Perform at most one browser action per call, click each intended control at most once, and never use `expectNavigation` on Douyin. Verify the resulting URL or visible state in a separate bounded call that returns only compact fields. Never issue a second click from a timeout/error catch or otherwise retry blindly. If a click or read times out, stop feed actions, reuse the same browser binding and current tab, and run the bounded same-surface diagnostics below.
 

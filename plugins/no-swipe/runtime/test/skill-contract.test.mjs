@@ -120,12 +120,17 @@ test("skill prioritizes the confirmed 60-second immediate lane", async () => {
   assert.match(skill, /Do not wait, visit the creator homepage, or allocate like/);
 });
 
-test("skill never opens a creator homepage for identity or evidence", async () => {
+test("skill allows own-profile identity but never another creator's homepage", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
-  assert.match(skill, /Never open a creator homepage/);
+  assert.match(skill, /never open another creator's homepage/i);
+  assert.match(skill, /never open a creator homepage/i);
+  assert.match(skill, /open the logged-in account's own profile page through a visible entry/);
+  assert.match(skill, /identity-only/);
+  assert.match(skill, /return to the recommendation feed and confirm the feed is active/);
+  assert.match(skill, /means the Douyin account was switched/);
   assert.match(skill, /recall `step` with the same `record_id` and `creatorFollowerCount`/);
   assert.doesNotMatch(skill, /open the author homepage|open that video's creator homepage|Stay on the homepage/);
 });

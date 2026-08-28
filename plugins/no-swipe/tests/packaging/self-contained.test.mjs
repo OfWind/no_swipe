@@ -44,9 +44,11 @@ function isExplicitlyProhibited(statement) {
   return /(?:never|do not|don't|must not|without opening|retired|removed|deprecated|禁止|不要|不得|切勿|避免|无需|不能|不可|废弃|已退役|已移除|未(?:打开|进入|访问|跳转|前往|停留)|不(?:再|应|可|要)?(?:打开|进入|访问|跳转|前往|停留)|不进)/i.test(statement);
 }
 
+// The logged-in account's own profile page is an allowed identity source;
+// only navigation to another creator's/author's profile must stay prohibited.
 function findProfileNavigationInstructions(source) {
   const navigation = /(?:\b(?:open|visit|enter|navigate(?:\s+to)?|go\s+to|stay\s+on)\b|打开|进入|访问|跳转(?:到|至)?|前往|停留(?:在)?)/i;
-  const profileTarget = /(?:\b(?:active|current|logged[- ]in|account(?:'s)?|own|author(?:'s)?|creator(?:'s)?)\b[^\n]{0,80}\b(?:profile|home\s?page)\b|\b(?:author|creator)\b[^\n]{0,40}\b(?:profile|home\s?page)\b|(?:当前|登录账号|自己|本账号|作者|创作者|达人|账号)[^\n]{0,50}(?:主页|首页|个人页|资料页))/i;
+  const profileTarget = /(?:\b(?:author(?:'s)?|creator(?:'s)?)\b[^\n]{0,80}\b(?:profile|home\s?page)\b|(?:作者|创作者|达人)[^\n]{0,50}(?:主页|首页|个人页|资料页))/i;
   return proseStatements(source).filter((statement) => (
     navigation.test(statement)
     && profileTarget.test(statement)
@@ -186,13 +188,13 @@ test("product entrypoints do not contain the former test persona or implicit exe
   assert.doesNotMatch(sources[2], /科技|3C|人工智能/i);
 });
 
-test("all shipped prompts resolve identity on the current surface without profile navigation", async () => {
+test("all shipped prompts resolve identity current-surface-first without creator-profile navigation", async () => {
   for (const file of SHIPPED_PROMPT_ENTRYPOINTS) {
     const source = await fs.readFile(path.join(ROOT, file), "utf8");
     assert.deepEqual(
       findProfileNavigationInstructions(source),
       [],
-      `${file} must not instruct the agent to open an account or creator profile`,
+      `${file} must not instruct the agent to open another creator's profile`,
     );
     assert.ok(
       hasCurrentSurfaceIdentityInstruction(source),
@@ -201,14 +203,14 @@ test("all shipped prompts resolve identity on the current surface without profil
   }
 });
 
-test("current implementation docs do not prescribe own or author profile navigation", async () => {
+test("current implementation docs do not prescribe author or creator profile navigation", async () => {
   for (const file of await currentImplementationDocuments()) {
     const source = await fs.readFile(file, "utf8");
     const label = path.relative(REPOSITORY_ROOT, file);
     assert.deepEqual(
       findProfileNavigationInstructions(source),
       [],
-      `${label} contains an instruction to navigate to an account or creator profile`,
+      `${label} contains an instruction to navigate to a creator profile`,
     );
   }
 });
