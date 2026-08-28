@@ -22,13 +22,15 @@ The compiled `no-swipe` binary does not contain this skill and does not open a b
 
 Unless the user explicitly asks for another browser (system Chrome, Safari, or chrome-devtools), use the Codex built-in browser for pairing, Douyin, and the workbench.
 
+Douyin and the workbench live in two dedicated tabs that coexist. Opening one surface never navigates the other's tab: when the tab you need does not exist yet, create a new one, and when both are needed open both. Never `goto` a workbench URL in the Douyin tab or a Douyin URL in the workbench/pairing tab. Keep the Douyin tab available across turns (mark it for handoff) and mark the workbench tab as a deliverable whenever it is shown to the user.
+
 ## 0. One startup call, then authorize only if needed
 
 This authorization gate is mandatory for every new or resumed run. Stop before all Douyin, collector, Goal, and upload actions unless startup reports `auth.connected=true`.
 
 1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. It is the only update step (downloads this machine's binary when the pinned version is missing and prunes older versions), and it chains `no-swipe up` before exiting. Its final JSON line carries everything startup needs: `auth.connected`, `next`, the machine-level `data_dir` (substitute it for `<data_dir>` in later commands), locally bound `accounts`, and `workbench_url`. After a successful bootstrap, do not run separate `auth status` or `config profile list` calls. Linux is not a release target.
 2. When `next=resolve_account`, continue straight to account resolution and reuse the returned `accounts` list.
-3. When `next=auth_login`, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. `status=approved` already persists credentials; continue directly to account resolution.
+3. When `next=auth_login`, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser in its own tab. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. `status=approved` already persists credentials; keep that signed-in workbench tab open, and continue to account resolution in a separate Douyin tab.
 4. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, device token, OTP, or email password.
 
 Keep plugin and binary updates inside bootstrap. Talk to the user only about the run, the preset, or the email OTP. Do not tell the user to re-enable the plugin, install Codex CLI, Node, Python, or uv. If the binary is missing after bootstrap, tell them a **new Codex task** will finish activating the plugin, and keep any local outbox. On Windows, an unsigned `no-swipe.exe` may be blocked by SmartScreen or 360; treat that as a local trust prompt, not an install failure, and do not switch to a Node or Python workaround.
@@ -170,7 +172,7 @@ Uploads are automatic and never an agent decision: `step` flushes the outbox in 
 
 When the target is reached, run `no-swipe finish --db <sqlite>` once: it closes the active session and uploads everything pending. Before completing the Goal, its output must show `upload.pending=0`, and review every `dead` record explicitly.
 
-After a successful run, open the workbench URL from `auth status` / credentials with the Codex built-in browser so the user can see uploaded authors. The pairing session already signed them in.
+After a successful run, show the workbench in its own tab so the user can see uploaded authors: reuse the signed-in workbench tab from pairing when it still exists, otherwise open a new tab, and never navigate the Douyin tab away from Douyin. The pairing session already signed them in.
 
 Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source. CSV and Excel are on-demand exports, not live copies.
 
