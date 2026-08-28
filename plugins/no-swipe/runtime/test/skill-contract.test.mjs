@@ -127,6 +127,9 @@ test("skill allows own-profile identity but never another creator's homepage", a
   );
   assert.match(skill, /never open another creator's homepage/i);
   assert.match(skill, /never open a creator homepage/i);
+  assert.match(skill, /Nickname fast path/);
+  assert.match(skill, /exactly one bound account/);
+  assert.match(skill, /no-swipe config profile identity/);
   assert.match(skill, /open the logged-in account's own profile page through a visible entry/);
   assert.match(skill, /identity-only/);
   assert.match(skill, /return to the recommendation feed and confirm the feed is active/);

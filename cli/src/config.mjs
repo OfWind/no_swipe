@@ -562,6 +562,26 @@ export async function writeJsonAtomic(filePath, value) {
   return resolved;
 }
 
+export async function readAccountIdentity(accountRef, { dataDir = ".no-swipe" } = {}) {
+  try {
+    return await readJson(path.join(accountDirectory(dataDir, accountRef), "identity.json"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function recordAccountIdentity(accountRef, nickname, { dataDir = ".no-swipe" } = {}) {
+  if (typeof nickname !== "string" || nickname.trim() === "") throw new Error("nickname 必须是非空字符串");
+  const value = {
+    account_ref: accountRef,
+    douyin_nickname: nickname.trim(),
+    verified_at: new Date().toISOString(),
+  };
+  await writeJsonAtomic(path.join(accountDirectory(dataDir, accountRef), "identity.json"), value);
+  return value;
+}
+
 export async function resolveAccountProfile(accountRef, { dataDir = ".no-swipe" } = {}) {
   const currentPath = path.join(accountDirectory(dataDir, accountRef), "current.json");
   try {
@@ -587,7 +607,15 @@ export async function listAccountProfiles({ dataDir = ".no-swipe" } = {}) {
   const profiles = [];
   for (const entry of entries.filter((item) => item.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
     const currentPath = path.join(accountsDir, entry.name, "current.json");
-    const profile = await readJson(currentPath);
+    let profile;
+    try {
+      profile = await readJson(currentPath);
+    } catch (error) {
+      // A directory holding only identity.json (identity verified, profile
+      // not bound yet) is a valid intermediate state, not an error.
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
     validateAccountProfile(profile);
     if (accountDirectory(dataDir, profile.account_ref) !== path.join(accountsDir, entry.name)) {
       throw new Error(`账号目录 ${entry.name} 与 current.json 的 account_ref 不一致`);

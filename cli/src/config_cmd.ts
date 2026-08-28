@@ -7,6 +7,7 @@ import {
   listAccountProfiles,
   materializeOnboardingPreset,
   readJson,
+  recordAccountIdentity,
   resolveAccountProfile,
   updateAccountProfile,
   validateAccountProfile,
@@ -34,7 +35,12 @@ export async function runConfig(args: string[]) {
     throw new Error("no-swipe config <profile|preset|run> <command> [file]");
   }
   const dataDir = option(args, "--data-dir") || ".no-swipe";
-  const value = resource === "profile" && ["resolve", "list"].includes(command) ? null : await readJson(filePath);
+  const value = resource === "profile" && ["resolve", "list", "identity"].includes(command) ? null : await readJson(filePath);
+  if (resource === "profile" && command === "identity") {
+    const nickname = option(args, "--nickname");
+    if (!nickname) throw new Error("profile identity 需要 --nickname");
+    return { ok: true, ...(await recordAccountIdentity(filePath, nickname, { dataDir })) };
+  }
   if (resource === "profile" && command === "validate") {
     validateAccountProfile(value);
     return { ok: true, kind: "AccountProfile", file: filePath };

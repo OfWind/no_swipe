@@ -1,6 +1,6 @@
 import { authStatus, readCredentials } from "./auth.ts";
 import { loadCloudConfig } from "./cloud.ts";
-import { listAccountProfiles } from "./config.mjs";
+import { listAccountProfiles, readAccountIdentity } from "./config.mjs";
 
 export async function up(dataDir = ".no-swipe") {
   const config = loadCloudConfig();
@@ -16,7 +16,15 @@ export async function up(dataDir = ".no-swipe") {
   }
   let accounts: unknown[] = [];
   try {
-    accounts = await listAccountProfiles({ dataDir });
+    const profiles = await listAccountProfiles({ dataDir }) as Array<Record<string, unknown>>;
+    accounts = await Promise.all(profiles.map(async (profile) => ({
+      account_ref: profile.account_ref,
+      profile_id: profile.profile_id,
+      revision: profile.revision,
+      name: profile.name,
+      douyin_nickname:
+        (await readAccountIdentity(String(profile.account_ref), { dataDir }))?.douyin_nickname ?? null,
+    })));
   } catch {
     accounts = [];
   }
