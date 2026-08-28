@@ -26,7 +26,7 @@ Unless the user explicitly asks for another browser (system Chrome, Safari, or c
 
 This authorization gate is mandatory for every new or resumed run. Stop before all Douyin, collector, Goal, and upload actions unless startup reports `auth.connected=true`.
 
-1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. It is the only update step (downloads this machine's binary when the pinned version is missing and prunes older versions), and it chains `no-swipe up` before exiting. Its final JSON line carries everything startup needs: `auth.connected`, `next`, locally bound `accounts`, and `workbench_url`. After a successful bootstrap, do not run separate `auth status` or `config profile list` calls. Linux is not a release target.
+1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. It is the only update step (downloads this machine's binary when the pinned version is missing and prunes older versions), and it chains `no-swipe up` before exiting. Its final JSON line carries everything startup needs: `auth.connected`, `next`, the machine-level `data_dir` (substitute it for `<data_dir>` in later commands), locally bound `accounts`, and `workbench_url`. After a successful bootstrap, do not run separate `auth status` or `config profile list` calls. Linux is not a release target.
 2. When `next=resolve_account`, continue straight to account resolution and reuse the returned `accounts` list.
 3. When `next=auth_login`, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. `status=approved` already persists credentials; continue directly to account resolution.
 4. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, device token, OTP, or email password.
@@ -41,15 +41,15 @@ Attach to the user's logged-in Douyin tab. Identity comes from the logged-in acc
 2. Nickname fast path: when the Douyin ID is not visible but the visible nickname exactly matches the stored `douyin_nickname` of exactly one bound account from the startup `up` output, treat this as that account without opening any page. Include one notice line in the next user-facing message, e.g. 「昵称『Wind』与已绑账号一致，按同一账号继续」, and do not ask a separate question about it.
 3. When the nickname matches zero or more than one bound account, or no bound account has a stored nickname, open the logged-in account's own profile page through a visible entry (the avatar or account menu; never a guessed `/user/` URL). This own-profile visit is identity-only: read the visible nickname and Douyin ID, then return to the recommendation feed and confirm the feed is active before any feed action. This applies to the first bind and to every later session's identity check alike.
 4. Ask the user for the Douyin ID in chat only after both the current surface and the own profile page fail to show it.
-5. Build `account_ref` from the visible Douyin ID and resolve only that account under `.no-swipe/accounts/`. A resolved ID that differs from a previously bound `account_ref` means the Douyin account was switched: select or create its sibling account directory, never update the old account's profile.
-6. After every Douyin-ID verification (first bind, ambiguity, or account switch), record the nickname so later sessions can use the fast path: `no-swipe config profile identity <account-ref> --nickname <可见昵称> --data-dir .no-swipe`.
+5. Build `account_ref` from the visible Douyin ID and resolve only that account under the machine-level data dir (the `data_dir` in the startup output; account bindings, runs, and drafts all live there and survive across Codex task workspaces). A resolved ID that differs from a previously bound `account_ref` means the Douyin account was switched: select or create its sibling account directory, never update the old account's profile. When the startup output reports `legacy_workspace_data`, an older workspace-local copy exists: pass `--data-dir <that path>` to keep using it, or simply re-confirm once and the account re-binds under the machine-level dir.
+6. After every Douyin-ID verification (first bind, ambiguity, or account switch), record the nickname so later sessions can use the fast path: `no-swipe config profile identity <account-ref> --nickname <可见昵称>`.
 7. Stay on the account-resolution surface until preset confirmation finishes.
 
 Treat Douyin as a SPA. Perform at most one browser action per call, click each intended control at most once, and never use `expectNavigation` on Douyin. Verify the resulting URL or visible state in a separate bounded call that returns only compact fields. Never issue a second click from a timeout/error catch or otherwise retry blindly. If a click or read times out, stop feed actions, reuse the same browser binding and current tab, and run the bounded same-surface diagnostics below.
 
 Stop before feed actions when identity is unreliable, the resolved account differs from the visible account, or a verification/access-limit page appears.
 
-Treat the authenticated No Swipe user and Douyin accounts as a 1:n relationship: one email-authenticated No Swipe user may bind multiple Douyin accounts. Keep one hashed account directory and one logical `AccountProfile` per `account_ref`; binding or selecting another Douyin account creates or resolves its sibling directory and never replaces, renames, or deletes an existing account directory. The startup `up` output already lists local bindings; run `no-swipe config profile list --data-dir .no-swipe` only for a deeper audit. Do not put the login email in `account_ref` or local profile files.
+Treat the authenticated No Swipe user and Douyin accounts as a 1:n relationship: one email-authenticated No Swipe user may bind multiple Douyin accounts. Keep one hashed account directory and one logical `AccountProfile` per `account_ref`; binding or selecting another Douyin account creates or resolves its sibling directory and never replaces, renames, or deletes an existing account directory. The startup `up` output already lists local bindings; run `no-swipe config profile list` only for a deeper audit. Do not put the login email in `account_ref` or local profile files.
 
 Reuse the current revision for the visible Douyin account without asking the persona again. A user-requested persona change creates the next revision under that account's same `profile_id`. Switching Douyin accounts selects another stored profile; it is not a profile update.
 
@@ -87,7 +87,7 @@ Materialize deterministic files from the returned tool result. For an unchanged 
 ```bash
 no-swipe config preset materialize ../../config/presets/douyin-youth-white-collar.v1.json \
   --account-ref <account-ref> --profile-id <profile-id> --run-id <run-id> \
-  --output-dir .no-swipe/drafts/<run-id>
+  --output-dir <data_dir>/drafts/<run-id>
 ```
 
 Bind revision 1 only after the structured confirmation. For an existing account, pass `--profile-mode replace --profile-input <that account's current.json>`: materialize preserves the input profile's `revision` and `created_at`, so the embedded snapshot matches the bound revision without a manual snapshot step. `--revision <n>` is available to pin the revision explicitly. Apply the confirmed run overrides without replacing the profile.
@@ -99,7 +99,7 @@ no-swipe config preset materialize ../../config/presets/douyin-youth-white-colla
   --account-ref <account-ref> --profile-id <profile-id> --run-id <run-id> \
   --profile-mode <preset|extend|replace> [--profile-input <profile-input.json>] \
   --run-mode <preset|extend|replace> [--run-input <run-input.json>] \
-  --output-dir .no-swipe/drafts/<run-id>
+  --output-dir <data_dir>/drafts/<run-id>
 ```
 
 `replace` requires a complete input object for that scope and never merges the preset into it. `extend` performs a field override; arrays replace arrays rather than concatenate implicitly.

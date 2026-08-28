@@ -15,6 +15,8 @@ test("up reports auth_login with no credentials and stays offline-safe", async (
   expect(result.auth.connected).toBe(false);
   expect(result.next).toBe("auth_login");
   expect(result.accounts).toEqual([]);
+  expect(result.data_dir).toBe(dataDir);
+  expect(result.legacy_workspace_data).toBeNull();
   expect(typeof result.workbench_url).toBe("string");
   expect(result.workbench_url.startsWith("https://")).toBe(true);
   expect(typeof result.plugin_version).toBe("string");

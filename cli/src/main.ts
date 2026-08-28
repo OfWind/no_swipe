@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { authLogin, authLogout, authStatus, pollPairing } from "./auth.ts";
 import { exportCsv, finishSession, insertObservation, startSession, statusSession } from "./collector.ts";
 import { runConfig } from "./config_cmd.ts";
+import { DATA_DIR } from "./paths.ts";
 import { runStep } from "./step.ts";
 import { syncOutbox } from "./sync.ts";
 import { up } from "./up.ts";
@@ -32,7 +33,7 @@ async function main(args: string[]) {
     return 0;
   }
   if (command === "up") {
-    print(await up(option(args, "--data-dir") || ".no-swipe"));
+    print(await up(option(args, "--data-dir") || DATA_DIR));
     return 0;
   }
   if (command === "config") {
@@ -62,7 +63,7 @@ async function main(args: string[]) {
     print(authLogout());
     return 0;
   }
-  const db = option(args, "--db") || ".no-swipe/runs/current/douyin_rpa_session.sqlite";
+  const db = option(args, "--db") || `${DATA_DIR}/runs/current/douyin_rpa_session.sqlite`;
   if (command === "start") {
     print(startSession(
       db,

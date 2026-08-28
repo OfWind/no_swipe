@@ -9,6 +9,13 @@ export const CONFIG_DIR = process.env.NO_SWIPE_AUTH_DIR
 export const CREDENTIALS_PATH = path.join(CONFIG_DIR, "credentials.json");
 export const BIN_DIR = path.join(CONFIG_DIR, "bin");
 
+// Machine-level data dir: account bindings, runs, and drafts must survive
+// across Codex task workspaces, so they live next to credentials rather
+// than in a cwd-relative .no-swipe directory.
+export const DATA_DIR = process.env.NO_SWIPE_DATA_DIR
+  ? path.resolve(process.env.NO_SWIPE_DATA_DIR)
+  : path.join(CONFIG_DIR, "data");
+
 function looksLikePluginRoot(dir: string): boolean {
   return existsSync(path.join(dir, "config", "supabase.json"))
     && (existsSync(path.join(dir, ".codex-plugin", "plugin.json")) || existsSync(path.join(dir, "config", "cli-version.json")));

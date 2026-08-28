@@ -15,6 +15,7 @@ import {
   validateRunConfig,
   writeJsonAtomic,
 } from "./config.mjs";
+import { DATA_DIR } from "./paths.ts";
 
 function option(args: string[], name: string) {
   const index = args.indexOf(name);
@@ -34,7 +35,7 @@ export async function runConfig(args: string[]) {
   if (!resource || !command || (fileRequired && !filePath)) {
     throw new Error("no-swipe config <profile|preset|run> <command> [file]");
   }
-  const dataDir = option(args, "--data-dir") || ".no-swipe";
+  const dataDir = option(args, "--data-dir") || DATA_DIR;
   const value = resource === "profile" && ["resolve", "list", "identity"].includes(command) ? null : await readJson(filePath);
   if (resource === "profile" && command === "identity") {
     const nickname = option(args, "--nickname");

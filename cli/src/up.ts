@@ -1,8 +1,11 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { authStatus, readCredentials } from "./auth.ts";
 import { loadCloudConfig } from "./cloud.ts";
 import { listAccountProfiles, readAccountIdentity } from "./config.mjs";
+import { DATA_DIR } from "./paths.ts";
 
-export async function up(dataDir = ".no-swipe") {
+export async function up(dataDir = DATA_DIR) {
   const config = loadCloudConfig();
   let auth: { connected: boolean; [key: string]: unknown };
   try {
@@ -28,12 +31,22 @@ export async function up(dataDir = ".no-swipe") {
   } catch {
     accounts = [];
   }
+  // Older releases stored bindings in a cwd-relative .no-swipe directory;
+  // surface it so a session can explicitly reuse that copy via --data-dir.
+  const legacyDir = path.resolve(".no-swipe");
+  const legacyWorkspaceData =
+    path.resolve(dataDir) !== legacyDir && existsSync(path.join(legacyDir, "accounts"))
+      ? legacyDir
+      : null;
+
   return {
     ok: true,
     plugin_version: config.plugin_version,
     auth,
     next: auth.connected ? "resolve_account" : "auth_login",
+    data_dir: path.resolve(dataDir),
     accounts,
+    legacy_workspace_data: legacyWorkspaceData,
     workbench_url: readCredentials()?.workbench_url ?? config.workbench_url,
   };
 }
