@@ -1,9 +1,11 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { authStatus, readCredentials } from "./auth.ts";
+import { spawnDetachedSync } from "./autoflush.ts";
 import { loadCloudConfig } from "./cloud.ts";
 import { listAccountProfiles, readAccountIdentity } from "./config.mjs";
 import { DATA_DIR } from "./paths.ts";
+import { openDb, queueCounts } from "./store.ts";
 
 export async function up(dataDir = DATA_DIR) {
   const config = loadCloudConfig();
@@ -39,6 +41,19 @@ export async function up(dataDir = DATA_DIR) {
       ? legacyDir
       : null;
 
+  // Crash recovery without agent decisions: leftover observations from an
+  // interrupted run start uploading in the background right at startup.
+  const defaultDb = path.join(path.resolve(dataDir), "runs", "current", "douyin_rpa_session.sqlite");
+  let outbox: { pending: number; dead: number; flush_started: boolean } | null = null;
+  if (existsSync(defaultDb)) {
+    const counts = queueCounts(openDb(defaultDb));
+    outbox = {
+      pending: counts.pending,
+      dead: counts.dead,
+      flush_started: auth.connected && counts.pending > 0 ? spawnDetachedSync(defaultDb) != null : false,
+    };
+  }
+
   return {
     ok: true,
     plugin_version: config.plugin_version,
@@ -46,6 +61,7 @@ export async function up(dataDir = DATA_DIR) {
     next: auth.connected ? "resolve_account" : "auth_login",
     data_dir: path.resolve(dataDir),
     accounts,
+    outbox,
     legacy_workspace_data: legacyWorkspaceData,
     workbench_url: readCredentials()?.workbench_url ?? config.workbench_url,
   };

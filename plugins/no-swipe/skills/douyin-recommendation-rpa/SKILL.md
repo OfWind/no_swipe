@@ -166,10 +166,9 @@ browser loop must not wait for a remote request before moving to the next
 feed item. Do not write CSV or Excel during collection. When the user asks
 to inspect or deliver data, export from SQLite with `no-swipe export`.
 
-At pause, page/CDP anomaly, handoff, or finish, run `no-swipe sync --db <sqlite>`.
-Require `local.pending=0` at those lifecycle boundaries and before completing the Goal; review every `dead` record explicitly before completing the Goal.
+Uploads are automatic and never an agent decision: `step` flushes the outbox in the background as it commits, `finish` drains it before returning, and the next session's startup (`up`) flushes any leftovers from an interrupted run. Do not schedule `no-swipe sync` yourself; it exists only as a manual retry when `finish` reports remaining `pending` (for example offline).
 
-When the task finishes and `pending=0`, run `no-swipe finish --db <sqlite>` once to close the active session.
+When the target is reached, run `no-swipe finish --db <sqlite>` once: it closes the active session and uploads everything pending. Before completing the Goal, its output must show `upload.pending=0`, and review every `dead` record explicitly.
 
 After a successful run, open the workbench URL from `auth status` / credentials with the Codex built-in browser so the user can see uploaded authors. The pairing session already signed them in.
 

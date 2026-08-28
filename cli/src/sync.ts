@@ -1,5 +1,6 @@
 import { functionUrl, loadCloudConfig } from "./cloud.ts";
 import { readCredentials } from "./auth.ts";
+import { acquireSyncLock, releaseSyncLock, touchSyncAttempt } from "./autoflush.ts";
 import { openDb, queueCounts } from "./store.ts";
 
 const MAX_REQUEST_BYTES = 400_000;
@@ -9,7 +10,38 @@ function retryDelay(attempt: number) {
   return Math.min(3600, 5 * (2 ** Math.max(0, attempt - 1))) * (0.75 + Math.random() * 0.5);
 }
 
-export async function syncOutbox(dbPath: string, { force = true, batchSize = 100 } = {}) {
+export async function syncOutbox(dbPath: string, options: { force?: boolean; batchSize?: number } = {}) {
+  if (!acquireSyncLock(dbPath)) {
+    return { status: "locked" as const };
+  }
+  touchSyncAttempt(dbPath);
+  try {
+    return await syncOneBatch(dbPath, options);
+  } catch (error) {
+    // Transport failures leave rows untouched; retries are picked up by the
+    // next automatic flush without agent involvement.
+    return {
+      status: "network_error" as const,
+      reason: error instanceof Error ? error.message : String(error),
+      ...queueCounts(openDb(dbPath)),
+    };
+  } finally {
+    releaseSyncLock(dbPath);
+  }
+}
+
+// Repeatedly upload batches until the outbox is drained or blocked.
+export async function drainOutbox(dbPath: string, { maxBatches = 50 } = {}) {
+  let last: Record<string, unknown> = { status: "idle" };
+  for (let i = 0; i < maxBatches; i += 1) {
+    last = await syncOutbox(dbPath, { force: true });
+    if (last.status !== "ok") break;
+    if (Number(last.pending ?? 0) <= 0) break;
+  }
+  return last;
+}
+
+async function syncOneBatch(dbPath: string, { force = true, batchSize = 100 } = {}) {
   const db = openDb(dbPath);
   const credentials = readCredentials();
   if (!credentials?.device_token) return { status: "login_required", ...queueCounts(db) };

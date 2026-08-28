@@ -2,10 +2,11 @@
 import { readFileSync } from "node:fs";
 import { authLogin, authLogout, authStatus, pollPairing } from "./auth.ts";
 import { exportCsv, finishSession, insertObservation, startSession, statusSession } from "./collector.ts";
+import { maybeAutoFlush } from "./autoflush.ts";
 import { runConfig } from "./config_cmd.ts";
 import { DATA_DIR } from "./paths.ts";
 import { runStep } from "./step.ts";
-import { syncOutbox } from "./sync.ts";
+import { drainOutbox, syncOutbox } from "./sync.ts";
 import { up } from "./up.ts";
 
 function option(args: string[], name: string) {
@@ -82,7 +83,9 @@ async function main(args: string[]) {
     return 0;
   }
   if (command === "finish") {
-    print(finishSession(db));
+    const finished = finishSession(db);
+    const sync = await drainOutbox(db);
+    print({ ...finished, sync, upload: statusSession(db).upload });
     return 0;
   }
   if (command === "export") {
@@ -95,14 +98,18 @@ async function main(args: string[]) {
   }
   if (command === "step") {
     const payload = readJsonArg(args);
-    print(runStep({
+    const result = runStep({
       dbPath: db,
       runConfig: payload.runConfig || payload.run_config,
       page: payload.page || payload,
       evidence: payload.evidence ?? null,
       record_id: payload.record_id,
       action_results: payload.action_results,
-    }));
+    });
+    if (result.status === "committed") {
+      maybeAutoFlush(db, Number((result as { upload?: { pending?: number } }).upload?.pending ?? 0));
+    }
+    print(result);
     return 0;
   }
   throw new Error(`unsupported command: ${command} ${sub ?? ""}`);
