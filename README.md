@@ -64,6 +64,6 @@ plugins/no-swipe/skills/douyin-recommendation-rpa/
 - Operates only on a user-opened and logged-in recommendation feed.
 - Does not bypass CAPTCHA, rate limits, login gates, or access controls.
 - Every state-changing action requires explicit authorization in the confirmed run config.
-- Positive comment, follow, not-interested, and profile-visit rates require total caps.
+- Positive comment, follow, and not-interested rates require total caps; profile sampling is retired and profile visits are disabled.
 - Keeps planned, attempted, verified, and actual action results separate.
 - Does not include account profiles, collected videos, SQLite databases, JSONL/CSV exports, cookies, or account credentials.
