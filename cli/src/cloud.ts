@@ -18,7 +18,7 @@ const BAKED: CloudConfig = {
   publishable_key: "sb_publishable_Jm6gViTHXW0c4hEmX26lqw_xfcLXP78",
   edge_function: "ingest",
   contract_version: 2,
-  plugin_version: "0.3.10",
+  plugin_version: "0.4.0",
   workbench_url: "https://whislte.cc.cd",
   releases_base_url: "https://kigrzhmcphrkqtuqthwb.supabase.co/storage/v1/object/public/no-swipe-releases",
 };
