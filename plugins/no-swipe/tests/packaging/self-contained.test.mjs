@@ -242,10 +242,11 @@ test("shipped preset keeps creator-profile traversal disabled", async () => {
     preset.profile.content_rules.recent_evidence_sources,
     ["feed_published_at"],
   );
-  assert.equal(
-    preset.profile.creator_rules.high_relevance.evidence_source,
-    "recommendation_feed",
-  );
+  // Follower-count creator rules are retired: that evidence is not visible
+  // on the feed and homepage collection is banned, so keeping the rule would
+  // silently disable every positive interaction.
+  assert.equal(preset.profile.creator_rules, undefined);
+  assert.doesNotMatch(preset.user_facing_copy, /粉丝量|粉丝数/);
 
   const userFacingText = [preset.user_facing_copy, preset.confirmation_notice].join("\n");
   assert.deepEqual(findProfileNavigationInstructions(userFacingText), []);

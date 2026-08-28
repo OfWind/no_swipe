@@ -1,4 +1,4 @@
 interface:
   display_name: "抖音推荐流一键配置"
   short_description: "授权上传后确认账号方案，创建目标并连续执行推荐流"
-  default_prompt: "Use $douyin-recommendation-rpa to authorize No Swipe upload first, then resolve the logged-in identity from the current Douyin page chrome, account menu, or avatar region, opening your own profile page only when the Douyin ID is not visible there and returning to the feed afterward; never open another creator's homepage; confirm one compact preset, create a durable Goal, and execute the run."
+  default_prompt: "Use $douyin-recommendation-rpa to authorize No Swipe upload first, then open https://www.douyin.com/user/self and read the nickname and Douyin ID from the current page to resolve the logged-in identity; never open another creator's homepage; confirm one compact preset, create a durable Goal, and execute the run."

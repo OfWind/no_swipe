@@ -41,7 +41,7 @@ test("skill waits for a compact chat answer before goal execution", async () => 
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
-  const questionIndex = skill.indexOf("请回复“使用预设并开始”");
+  const questionIndex = skill.indexOf("回复 1 使用该画像并开始");
   const confirmIndex = skill.indexOf("run confirm <draft.json>");
   const goalIndex = skill.indexOf("create_goal");
   const feedIndex = skill.indexOf("## 5. Apply the configured feed rules");
@@ -127,12 +127,9 @@ test("skill allows own-profile identity but never another creator's homepage", a
   );
   assert.match(skill, /never open another creator's homepage/i);
   assert.match(skill, /never open a creator homepage/i);
-  assert.match(skill, /Nickname fast path/);
-  assert.match(skill, /exactly one bound account/);
+  assert.match(skill, /https:\/\/www\.douyin\.com\/user\/self/);
+  assert.match(skill, /never construct `\/user\/<id>` for anyone else/);
   assert.match(skill, /no-swipe config profile identity/);
-  assert.match(skill, /open the logged-in account's own profile page through a visible entry/);
-  assert.match(skill, /identity-only/);
-  assert.match(skill, /return to the recommendation feed and confirm the feed is active/);
   assert.match(skill, /means the Douyin account was switched/);
   assert.match(skill, /recall `step` with the same `record_id` and `creatorFollowerCount`/);
   assert.doesNotMatch(skill, /open the author homepage|open that video's creator homepage|Stay on the homepage/);

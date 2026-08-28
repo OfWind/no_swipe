@@ -77,6 +77,35 @@ test("step skips live content without asking for evidence", () => {
   expect(result.classification.relevant).toBe(true);
 });
 
+test("exclusion-only profiles treat watchable items as interaction-eligible high", () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
+  startSession(dbPath, 5, "observed");
+  const excludeOnlyProfile = {
+    selection_mode: "exclude_only",
+    positive_topics: [],
+    high_priority_topics: [],
+    negative_topics: ["擦边"],
+    content_rules: { minimum_like_count: 1000, below_minimum_behavior: "skip_unless_recent" },
+    classification: { high_match_count: 2 },
+  };
+  const result = runStep({
+    dbPath,
+    runConfig: { run_id: "run-1", account_ref: "acc", interest_profile: excludeOnlyProfile },
+    page: { title: "西藏自驾游记", like_count: 31000, duration_seconds: 300 },
+  });
+  expect(result.status).toBe("committed");
+  expect(result.classification.high).toBe(true);
+  expect(result.classification.level).toBe("high");
+
+  const excludedResult = runStep({
+    dbPath,
+    runConfig: { run_id: "run-1", account_ref: "acc", interest_profile: excludeOnlyProfile },
+    page: { title: "擦边视频", like_count: 31000, duration_seconds: 300 },
+  });
+  expect(excludedResult.classification.high).toBe(false);
+  expect(excludedResult.classification.relevant).toBe(false);
+});
+
 test("step persists when evidence is explicitly null", () => {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
   startSession(dbPath, 5, "relevant");

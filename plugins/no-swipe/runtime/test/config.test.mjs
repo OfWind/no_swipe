@@ -47,7 +47,7 @@ test("onboarding preset materializes one compact confirmed-ready decision", asyn
   assert.equal(result.profile.content_rules.short_video_max_duration_seconds, 60);
   assert.equal(result.profile.content_rules.short_video_behavior, "not_interested_or_skip");
   assert.deepEqual(result.profile.content_rules.recent_evidence_sources, ["feed_published_at"]);
-  assert.equal(result.profile.creator_rules.high_relevance.evidence_source, "recommendation_feed");
+  assert.equal(result.profile.creator_rules, undefined);
   assert.equal(result.run_config.interaction_policy.rules[0].like_rate, 0.1);
   assert.equal(result.run_config.interaction_policy.follow.rate, 0.03);
   assert.equal(result.run_config.interaction_policy.rules[0].comment_rate, 0);

@@ -35,15 +35,13 @@ Keep plugin and binary updates inside bootstrap. Talk to the user only about the
 
 ## 1. Resolve the logged-in account after upload authorization
 
-Attach to the user's logged-in Douyin tab. Identity comes from the logged-in account itself, never from feed content: the active feed card's author avatar is not an identity source, and another creator's homepage must never be opened because leaving the feed for a creator profile can bias later recommendations toward that person.
+Identity comes from the logged-in account's own canonical profile URL, never from feed content: the active feed card's author avatar is not an identity source, and another creator's homepage must never be opened because leaving the feed for a creator profile can bias later recommendations toward that person.
 
-1. Read the visible nickname and Douyin ID from the current page chrome, account menu, or logged-in-account avatar region first. When the Douyin ID is visible, it is authoritative—skip the fast path below.
-2. Nickname fast path: when the Douyin ID is not visible but the visible nickname exactly matches the stored `douyin_nickname` of exactly one bound account from the startup `up` output, treat this as that account without opening any page. Include one notice line in the next user-facing message, e.g. 「昵称『Wind』与已绑账号一致，按同一账号继续」, and do not ask a separate question about it.
-3. When the nickname matches zero or more than one bound account, or no bound account has a stored nickname, open the logged-in account's own profile page through a visible entry (the avatar or account menu; never a guessed `/user/` URL). This own-profile visit is identity-only: read the visible nickname and Douyin ID, then return to the recommendation feed and confirm the feed is active before any feed action. This applies to the first bind and to every later session's identity check alike.
-4. Ask the user for the Douyin ID in chat only after both the current surface and the own profile page fail to show it.
-5. Build `account_ref` from the visible Douyin ID and resolve only that account under the machine-level data dir (the `data_dir` in the startup output; account bindings, runs, and drafts all live there and survive across Codex task workspaces). A resolved ID that differs from a previously bound `account_ref` means the Douyin account was switched: select or create its sibling account directory, never update the old account's profile. When the startup output reports `legacy_workspace_data`, an older workspace-local copy exists: pass `--data-dir <that path>` to keep using it, or simply re-confirm once and the account re-binds under the machine-level dir.
-6. After every Douyin-ID verification (first bind, ambiguity, or account switch), record the nickname so later sessions can use the fast path: `no-swipe config profile identity <account-ref> --nickname <可见昵称>`.
-7. Stay on the account-resolution surface until preset confirmation finishes.
+1. The first browser action of every new or resumed session is opening `https://www.douyin.com/user/self` in the Douyin tab. This fixed self-referential URL always shows the logged-in account; it is not a guessed creator URL and never construct `/user/<id>` for anyone else.
+2. Read the visible nickname and Douyin ID (`抖音号：…`) from the current page. A login gate or verification page here means the account is not usable: show the browser to the user, ask them to log in, and do not proceed.
+3. Build `account_ref` from the visible Douyin ID and resolve only that account under the machine-level data dir (the `data_dir` in the startup output; account bindings, runs, and drafts all live there and survive across Codex task workspaces). A resolved ID that differs from a previously bound `account_ref` means the Douyin account was switched: select or create its sibling account directory, never update the old account's profile. When the startup output reports `legacy_workspace_data`, an older workspace-local copy exists: pass `--data-dir <that path>` to keep using it, or simply re-confirm once and the account re-binds under the machine-level dir.
+4. Record the nickname for audit: `no-swipe config profile identity <account-ref> --nickname <可见昵称>`.
+5. Identity is now settled; go straight to the compact confirmation below. Navigate to the recommendation feed (`https://www.douyin.com/?recommend=1`) only after the run is confirmed.
 
 Treat Douyin as a SPA. Perform at most one browser action per call, click each intended control at most once, and never use `expectNavigation` on Douyin. Verify the resulting URL or visible state in a separate bounded call that returns only compact fields. Never issue a second click from a timeout/error catch or otherwise retry blindly. If a click or read times out, stop feed actions, reuse the same browser binding and current tab, and run the bounded same-surface diagnostics below.
 
@@ -63,9 +61,9 @@ Read `../../config/presets/douyin-youth-white-collar.v1.json`. Show only:
 
 End the current turn with this one compact chat question:
 
-> 请回复“使用预设并开始”，或直接写修改要求；回复“先不启动”则保持账号画像、运行配置和推荐流不变。
+> 回复 1 使用该画像并开始，或直接写修改要求。
 
-Keep the browser on the current Douyin surface and perform no feed action while waiting. Treat the next user message as the answer and resume preparation from it.
+Keep the browser on the current Douyin surface and perform no feed action while waiting. Treat the next user message as the answer and resume preparation from it. `1`、`使用预设并开始`、`沿用并开始` are all explicit confirmation; a user message that declines or asks to hold means no binding, no Goal, and no feed action—do not advertise that option in the question.
 
 Free-form text is the customization path:
 
@@ -74,11 +72,11 @@ Free-form text is the customization path:
 - `完全修改`、`完全替换`、`不要原预设` mean `replace` for the named scope. Build that profile or run scope from a neutral complete object; copy no value from the preset into the replaced scope.
 - Ask one additional focused chat question only when the difference between `extend` and `replace`, or another ambiguity, would materially change an external action. Wait for that answer before continuing.
 
-`使用预设并开始` is explicit confirmation to bind the profile, confirm the run, create a durable Goal, and execute. `先不启动` ends without binding, confirming, creating a Goal, or operating the feed.
+Explicit confirmation (`1` / `使用预设并开始` / `沿用并开始`) binds the profile, confirms the run, creates a durable Goal, and executes.
 
 This one confirmation is also the run-scoped, action-time authorization for like, favorite, not interested, and follow/comment candidates up to their confirmed rates and caps. When the in-app browser's safety or Agent Confirmations Policy asks for user confirmation before a state-changing page action, this sealed confirmation is that confirmation for in-quota feed interactions; cite it and continue instead of asking again. Never open a creator homepage, even when the sealed config sets `profile_visit` or `profile_sampling`. During the feed loop, execute `plannedActions` (including `follow` when the quota marks that creator as a candidate) without any further chat question. Pause for a new chat question only when an action would exceed the sealed config, evidence is contradictory, or a safety stop triggers. Report executed interactions in Goal status updates instead of asking per item.
 
-For an already-bound account, replace the onboarding copy with one line naming the reused profile and revision, then ask for `沿用并开始`、修改要求或`先不启动`. Free-form text creates a profile revision only for durable persona changes; target and interaction edits remain run-scoped.
+For an already-bound account, replace the onboarding copy with one line naming the reused profile and revision, then ask: 回复 1 沿用并开始，或直接写修改要求。 Free-form text creates a profile revision only for durable persona changes; target and interaction edits remain run-scoped.
 
 ## 3. Materialize and seal the decision
 
@@ -137,7 +135,7 @@ Return to the recommendation feed only after confirmation. Follow the versioned 
 - Negative lane or excluded creator type: click not interested only when the classification is reliable.
 - Other lanes: treat as watchable without requiring a positive keyword hit.
 - Visible likes below the configured threshold: swipe directly unless the visible feed timestamp confirms the video is newly published. Do not open a creator homepage to inspect the work list.
-- High relevance: only when follower count and recent-like stability are visible on the feed card. If that evidence is missing, keep observing and do not infer high relevance. Do not open the creator homepage.
+- Interaction eligibility: profiles with positive topics reach the high lane through keyword matches; exclusion-only profiles without positive topics (the shipped preset) treat every watchable item as interaction-eligible, and the confirmed rates and caps do the throttling. Do not open a creator homepage for extra evidence.
 - Evidence missing or ambiguous: keep observing; do not infer high relevance or click not interested.
 
 Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. For each item, send visible page facts to `no-swipe step --db <sqlite> --json-file <payload.json>`. `author` and `author_href` must come from the same `a[href*='/user/']` anchor inside the active slide; write `author` only through `normalizeAuthorName`, and leave `author_href` empty when that pair cannot be read. `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`. When it returns `status=needs_evidence`, stay on the feed, recall `step` with the same `record_id` and `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` set to `null`, and continue. Do not call collector `record` during the feed loop.

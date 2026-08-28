@@ -64,7 +64,13 @@ export function classifyRecommendation(raw, profile) {
       && (!creatorRule.require_stable_recent_likes || raw?.creatorRecentLikesStable === true)
     : null;
   const highMatchCount = Math.max(1, Number(profile.classification?.high_match_count || 2));
-  const keywordHigh = priority.length > 0 || matched.length >= highMatchCount;
+  const positiveSignalsConfigured =
+    (profile.positive_topics?.length || 0) + (profile.high_priority_topics?.length || 0) > 0;
+  // Exclusion-only profiles without positive topics have no keyword signal;
+  // every watchable item is interaction-eligible and rates/caps do the throttling.
+  const keywordHigh = positiveSignalsConfigured
+    ? priority.length > 0 || matched.length >= highMatchCount
+    : true;
   const high = relevant && !directSkip && (creatorRule ? creatorHigh : keywordHigh);
   const needsCreatorProfile = relevant && !shortVideo && (
     needsRecentEvidence
