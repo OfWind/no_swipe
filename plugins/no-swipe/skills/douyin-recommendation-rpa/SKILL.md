@@ -22,15 +22,14 @@ The compiled `no-swipe` binary does not contain this skill and does not open a b
 
 Unless the user explicitly asks for another browser (system Chrome, Safari, or chrome-devtools), use the Codex built-in browser for pairing, Douyin, and the workbench.
 
-## 0. Authorize data upload before browser access
+## 0. One startup call, then authorize only if needed
 
-This authorization gate is mandatory for every new or resumed run. Stop before all Douyin, collector, Goal, and upload actions unless `auth status` returns `connected=true`.
+This authorization gate is mandatory for every new or resumed run. Stop before all Douyin, collector, Goal, and upload actions unless startup reports `auth.connected=true`.
 
-1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. That script is the only update step: it copies cloud config, downloads this machine's binary when the pinned version is missing, and deletes older version directories under `~/.config/no-swipe/bin/` plus sibling Codex plugin-cache folders. Codex already refreshes the Git marketplace in the background; this task uses the activated shell. Linux is not a release target.
-2. Run `no-swipe auth status`.
-3. When `connected=true`, continue to account resolution.
-4. When not connected, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. Wait until login prints `status=approved`, then retry `auth status` once.
-5. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, device token, OTP, or email password.
+1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. It is the only update step (downloads this machine's binary when the pinned version is missing and prunes older versions), and it chains `no-swipe up` before exiting. Its final JSON line carries everything startup needs: `auth.connected`, `next`, locally bound `accounts`, and `workbench_url`. After a successful bootstrap, do not run separate `auth status` or `config profile list` calls. Linux is not a release target.
+2. When `next=resolve_account`, continue straight to account resolution and reuse the returned `accounts` list.
+3. When `next=auth_login`, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. `status=approved` already persists credentials; continue directly to account resolution.
+4. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, device token, OTP, or email password.
 
 Keep plugin and binary updates inside bootstrap. Talk to the user only about the run, the preset, or the email OTP. Do not tell the user to re-enable the plugin, install Codex CLI, Node, Python, or uv. If the binary is missing after bootstrap, tell them a **new Codex task** will finish activating the plugin, and keep any local outbox. On Windows, an unsigned `no-swipe.exe` may be blocked by SmartScreen or 360; treat that as a local trust prompt, not an install failure, and do not switch to a Node or Python workaround.
 
@@ -46,7 +45,7 @@ Treat Douyin as a SPA. Perform at most one browser action per call, click each i
 
 Stop before feed actions when identity is unreliable, the resolved account differs from the visible account, or a verification/access-limit page appears.
 
-Treat the authenticated No Swipe user and Douyin accounts as a 1:n relationship: one email-authenticated No Swipe user may bind multiple Douyin accounts. Keep one hashed account directory and one logical `AccountProfile` per `account_ref`; binding or selecting another Douyin account creates or resolves its sibling directory and never replaces, renames, or deletes an existing account directory. Run `no-swipe config profile list --data-dir .no-swipe` when the local bindings need auditing. Do not put the login email in `account_ref` or local profile files.
+Treat the authenticated No Swipe user and Douyin accounts as a 1:n relationship: one email-authenticated No Swipe user may bind multiple Douyin accounts. Keep one hashed account directory and one logical `AccountProfile` per `account_ref`; binding or selecting another Douyin account creates or resolves its sibling directory and never replaces, renames, or deletes an existing account directory. The startup `up` output already lists local bindings; run `no-swipe config profile list --data-dir .no-swipe` only for a deeper audit. Do not put the login email in `account_ref` or local profile files.
 
 Reuse the current revision for the visible Douyin account without asking the persona again. A user-requested persona change creates the next revision under that account's same `profile_id`. Switching Douyin accounts selects another stored profile; it is not a profile update.
 

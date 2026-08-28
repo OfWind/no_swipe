@@ -64,7 +64,7 @@ if [[ -x "$BIN" ]]; then
   prune_old_packages
   printf '{"ok":true,"path":"%s","skipped":true,"pruned_bins":%s,"pruned_plugins":%s}\n' \
     "$BIN" "$PRUNED_BINS" "$PRUNED_PLUGINS"
-  exit 0
+  exec "$BIN" up
 fi
 CONFIG="$ROOT/config/supabase.json"
 BASE="$(sed -n 's/.*"releases_base_url": "\([^"]*\)".*/\1/p' "$CONFIG" | head -1)"
@@ -86,3 +86,4 @@ chmod 755 "$BIN"
 prune_old_packages
 printf '{"ok":true,"path":"%s","version":"%s","target":"%s","pruned_bins":%s,"pruned_plugins":%s}\n' \
   "$BIN" "$VERSION" "$TARGET" "$PRUNED_BINS" "$PRUNED_PLUGINS"
+exec "$BIN" up

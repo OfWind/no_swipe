@@ -5,6 +5,7 @@ import { exportCsv, finishSession, insertObservation, startSession, statusSessio
 import { runConfig } from "./config_cmd.ts";
 import { runStep } from "./step.ts";
 import { syncOutbox } from "./sync.ts";
+import { up } from "./up.ts";
 
 function option(args: string[], name: string) {
   const index = args.indexOf(name);
@@ -27,7 +28,11 @@ function print(value: unknown) {
 async function main(args: string[]) {
   const [command, sub, ...rest] = args;
   if (!command || command === "--help" || command === "help") {
-    print("no-swipe auth|config|start|record|status|finish|export|sync|step");
+    print("no-swipe up|auth|config|start|record|status|finish|export|sync|step");
+    return 0;
+  }
+  if (command === "up") {
+    print(await up(option(args, "--data-dir") || ".no-swipe"));
     return 0;
   }
   if (command === "config") {

@@ -19,26 +19,29 @@ const SHIPPED_PROMPT_ENTRYPOINTS = [
 ];
 
 const CURRENT_IMPLEMENTATION_DOCS = [
+  "README.md",
+  "docs/no-swipe-refactor-plan-v1.md",
   "docs/no-swipe-refactor-spec-v1.md",
   "docs/no-swipe-refactor-plan-v2.md",
   "docs/no-swipe-interaction-flows.md",
+  "plugins/no-swipe/README.md",
 ];
+
+const SHIPPED_REFERENCES_DIRECTORY = path.join(
+  ROOT,
+  "skills/douyin-recommendation-rpa/references",
+);
 
 function proseStatements(source) {
   return source
     .replaceAll("\r", "")
-    .split(/[\n.!?。！？]+/)
+    .split(/\n+|[!?。！？]+|(?<!\d)\.(?!\d)/)
     .map((statement) => statement.trim())
     .filter(Boolean);
 }
 
-function isClearlyHistorical(statement) {
-  return /(?:previously|formerly|legacy|historical|old behavior|changelog|旧版|旧行为|早期计划|历史|曾经|此前|原先|过去|变更前|已移除|不再)/i.test(statement)
-    || /^\|\s*20\d{2}-\d{2}-\d{2}\s*\|/.test(statement);
-}
-
 function isExplicitlyProhibited(statement) {
-  return /(?:never|do not|don't|must not|without opening|禁止|不要|不得|切勿|避免|无需|不能|不可|不(?:再|应|可|要)?(?:打开|进入|访问|跳转|前往|停留)|不进)/i.test(statement);
+  return /(?:never|do not|don't|must not|without opening|retired|removed|deprecated|禁止|不要|不得|切勿|避免|无需|不能|不可|废弃|已退役|已移除|未(?:打开|进入|访问|跳转|前往|停留)|不(?:再|应|可|要)?(?:打开|进入|访问|跳转|前往|停留)|不进)/i.test(statement);
 }
 
 function findProfileNavigationInstructions(source) {
@@ -48,8 +51,18 @@ function findProfileNavigationInstructions(source) {
     navigation.test(statement)
     && profileTarget.test(statement)
     && !isExplicitlyProhibited(statement)
-    && !isClearlyHistorical(statement)
   ));
+}
+
+async function currentImplementationDocuments() {
+  const references = (await fs.readdir(SHIPPED_REFERENCES_DIRECTORY, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => path.join(SHIPPED_REFERENCES_DIRECTORY, entry.name));
+
+  return [
+    ...CURRENT_IMPLEMENTATION_DOCS.map((file) => path.join(REPOSITORY_ROOT, file)),
+    ...references,
+  ];
 }
 
 function hasCurrentSurfaceIdentityInstruction(source) {
@@ -129,16 +142,19 @@ test("bootstrap keeps the current binary and deletes older version directories",
     await fs.writeFile(path.join(binRoot, "0.3.5/no-swipe"), "old");
     await fs.mkdir(path.join(binRoot, version), { recursive: true });
     const currentBin = path.join(binRoot, version, "no-swipe");
-    await fs.writeFile(currentBin, "current");
+    await fs.writeFile(currentBin, "#!/bin/sh\necho '{\"ok\":true,\"stub\":\"'\"$1\"'\"}'\n");
     await fs.chmod(currentBin, 0o755);
     await fs.mkdir(path.join(binRoot, "keep-me"), { recursive: true });
     await fs.writeFile(path.join(home, ".config/no-swipe/credentials.json"), "{\"ok\":true}\n");
     const { stdout } = await execFileAsync("bash", [path.join(ROOT, "scripts/bootstrap.sh")], {
       env: { ...process.env, HOME: home, NO_SWIPE_HOME: home },
     });
-    const result = JSON.parse(stdout);
+    const lines = stdout.trim().split("\n");
+    const result = JSON.parse(lines[0]);
     assert.equal(result.ok, true);
     assert.deepEqual(result.pruned_bins, ["0.3.5"]);
+    const chained = JSON.parse(lines[1]);
+    assert.equal(chained.stub, "up");
     await fs.access(path.join(binRoot, version, "no-swipe"));
     await fs.access(path.join(binRoot, "keep-me"));
     await fs.access(path.join(home, ".config/no-swipe/credentials.json"));
@@ -186,14 +202,28 @@ test("all shipped prompts resolve identity on the current surface without profil
 });
 
 test("current implementation docs do not prescribe own or author profile navigation", async () => {
-  for (const file of CURRENT_IMPLEMENTATION_DOCS) {
-    const source = await fs.readFile(path.join(REPOSITORY_ROOT, file), "utf8");
+  for (const file of await currentImplementationDocuments()) {
+    const source = await fs.readFile(file, "utf8");
+    const label = path.relative(REPOSITORY_ROOT, file);
     assert.deepEqual(
       findProfileNavigationInstructions(source),
       [],
-      `${file} contains a present-tense instruction to navigate to an account or creator profile`,
+      `${label} contains an instruction to navigate to an account or creator profile`,
     );
   }
+});
+
+test("current implementation docs keep profile sampling retired", async () => {
+  const sources = await Promise.all((await currentImplementationDocuments()).map(
+    (file) => fs.readFile(file, "utf8"),
+  ));
+  const combined = sources.join("\n");
+
+  assert.doesNotMatch(combined, /profile sampling 由 runner 单独按作者抽样/i);
+  assert.doesNotMatch(combined, /positive[^\n.]*profile[- ]visit rates? require total caps/i);
+  assert.doesNotMatch(combined, /作者主页证据入口优先点击/);
+  assert.doesNotMatch(combined, /持久化[^\n。]*主页抽样集合/);
+  assert.match(combined, /profile sampling[^\n。]*(?:retired|disabled|已退役|已禁用)/i);
 });
 
 test("shipped preset keeps creator-profile traversal disabled", async () => {

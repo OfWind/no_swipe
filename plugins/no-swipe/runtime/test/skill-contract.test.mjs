@@ -11,12 +11,13 @@ test("skill gates every run on device pairing before browser access", async () =
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
-  const authSection = skill.indexOf("## 0. Authorize data upload before browser access");
-  const statusCall = skill.indexOf("`no-swipe auth status`");
+  const authSection = skill.indexOf("## 0. One startup call, then authorize only if needed");
+  const upCall = skill.indexOf("chains `no-swipe up`");
   const browserSection = skill.indexOf("## 1. Resolve the logged-in account after upload authorization");
 
   assert.ok(authSection >= 0, "runtime auth gate is required");
-  assert.ok(authSection < statusCall && statusCall < browserSection);
+  assert.ok(authSection < upCall && upCall < browserSection);
+  assert.match(skill, /do not run separate `auth status` or `config profile list` calls/);
   assert.match(skill, /description:.*Verify No Swipe upload authorization before every browser action/);
   assert.match(skill, /mandatory for every new or resumed run/);
   assert.match(skill, /no-swipe auth login/);

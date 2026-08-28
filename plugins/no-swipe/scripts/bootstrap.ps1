@@ -51,7 +51,8 @@ function Write-BootstrapResult([hashtable]$extra) {
 
 if (Test-Path $Bin) {
   Write-BootstrapResult @{ skipped = $true }
-  exit 0
+  & $Bin up
+  exit $LASTEXITCODE
 }
 $Config = Get-Content (Join-Path $Root "config\supabase.json") | ConvertFrom-Json
 $Artifact = "no-swipe-windows-x64.exe.gz"
@@ -76,3 +77,5 @@ $Gzip.Close()
 $InputStream.Close()
 Remove-Item -Force $Tmp
 Write-BootstrapResult @{ version = $Version; target = "windows-x64" }
+& $Bin up
+exit $LASTEXITCODE
