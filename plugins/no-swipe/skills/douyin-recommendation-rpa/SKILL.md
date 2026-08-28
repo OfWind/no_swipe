@@ -140,7 +140,17 @@ Return to the recommendation feed only after confirmation. Follow the versioned 
 - Interaction eligibility: profiles with positive topics reach the high lane through keyword matches; exclusion-only profiles without positive topics (the shipped preset) treat every watchable item as interaction-eligible, and the confirmed rates and caps do the throttling. Do not open a creator homepage for extra evidence.
 - Evidence missing or ambiguous: keep observing; do not infer high relevance or click not interested.
 
-Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. For each item, send visible page facts to `no-swipe step --db <sqlite> --json-file <payload.json>`. `author` and `author_href` must come from the same `a[href*='/user/']` anchor inside the active slide; write `author` only through `normalizeAuthorName`, and leave `author_href` empty when that pair cannot be read. `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`. When it returns `status=needs_evidence`, stay on the feed, recall `step` with the same `record_id` and `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` set to `null`, and continue. Do not call collector `record` during the feed loop.
+Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. Do not rediscover the page: the entry path and the fact extractor below are the known-good adapters, so no full-page DOM snapshots, no selector archaeology, and no reading CLI source code during the loop.
+
+- Entry path on Douyin PC: `https://www.douyin.com/?recommend=1` lands on a waterfall grid without an active player. Click one video card (an element carrying `data-aweme-id`) once to enter the modal player; from then on `[data-e2e="feed-active-video"]` is the active slide and clicking `[data-e2e="video-switch-next-arrow"]` moves to the next recommendation.
+- Per item, read [scripts/douyin_page_facts.js](scripts/douyin_page_facts.js) once at loop start, then run `tab.playwright.evaluate(<its full text>)` to get the `page` facts (`surface=no_active_video` means you are still on the grid). It returns title, caption, author, `author_href` (from the active slide's avatar anchor), counts already parsed from `万/亿`, duration/position, and `can_switch_next`.
+- Call `no-swipe step --db <sqlite> --json-file <payload.json>` with exactly this payload shape—`runConfig` is the whole confirmed run-config JSON, no extra reading required:
+
+```json
+{"runConfig": <run-config.confirmed.json 全文>, "page": <douyin_page_facts.js 的返回值>}
+```
+
+`no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`, and its `planned_actions` tells you which in-quota interactions to attempt on this item. When it returns `status=needs_evidence`, stay on the feed, recall `step` with the same `record_id` plus an `evidence` object (`isRecentlyPublished` from the visible publish time, others `null` when unknown), and continue. Do not call collector `record` during the feed loop.
 
 Runtime gates remain mandatory:
 
@@ -174,6 +184,6 @@ When the target is reached, run `no-swipe finish --db <sqlite>` once: it closes 
 
 After a successful run, show the workbench in its own tab so the user can see uploaded authors: reuse the signed-in workbench tab from pairing when it still exists, otherwise open a new tab, and never navigate the Douyin tab away from Douyin. The pairing session already signed them in.
 
-Read [references/data-contract.md](references/data-contract.md) when recording/exporting observations and [references/quota-policy.md](references/quota-policy.md) when changing allocations. Keep SQLite as the local fact source. CSV and Excel are on-demand exports, not live copies.
+The step payload above is the whole recording contract—do not read references or CLI sources to record. Read [references/data-contract.md](references/data-contract.md) only when exporting or debugging schema questions, and [references/quota-policy.md](references/quota-policy.md) only when changing allocations. Keep SQLite as the local fact source. CSV and Excel are on-demand exports, not live copies.
 
 Never store or export cookies, tokens, authorization headers, credentials, or reusable browser-session material.

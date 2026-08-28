@@ -253,6 +253,25 @@ test("shipped preset keeps creator-profile traversal disabled", async () => {
   assert.doesNotMatch(userFacingText, /(?:作者主页(?:作品)?列表|主页访问权限|creator_profile)/i);
 });
 
+test("page-fact extractor ships as an evaluate-ready adapter with stable selectors", async () => {
+  const extractor = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_page_facts.js"),
+    "utf8",
+  );
+  assert.ok(extractor.trimStart().startsWith("() => {"), "must be a single evaluate-ready arrow function");
+  for (const selector of [
+    'data-e2e="feed-active-video"',
+    'data-e2e="video-player-digg"',
+    'data-e2e="feed-video-nickname"',
+    'data-e2e="video-desc"',
+    'data-e2e="video-avatar"',
+    'data-e2e="video-switch-next-arrow"',
+  ]) {
+    assert.ok(extractor.includes(selector), `extractor must keep selector ${selector}`);
+  }
+  assert.doesNotMatch(extractor, /\.click\(|\bgoto\(|history\./, "extractor must be read-only");
+});
+
 test("retired Node runner and Python collector are not shipped", async () => {
   await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs")));
   await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_rpa_collector.py")));

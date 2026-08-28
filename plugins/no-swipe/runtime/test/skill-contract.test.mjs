@@ -131,7 +131,9 @@ test("skill allows own-profile identity but never another creator's homepage", a
   assert.match(skill, /never construct `\/user\/<id>` for anyone else/);
   assert.match(skill, /no-swipe config profile identity/);
   assert.match(skill, /means the Douyin account was switched/);
-  assert.match(skill, /recall `step` with the same `record_id` and `creatorFollowerCount`/);
+  assert.match(skill, /recall `step` with the same `record_id` plus an `evidence` object/);
+  assert.match(skill, /douyin_page_facts\.js/);
+  assert.match(skill, /no full-page DOM snapshots, no selector archaeology, and no reading CLI source code/);
   assert.doesNotMatch(skill, /open the author homepage|open that video's creator homepage|Stay on the homepage/);
 });
 
