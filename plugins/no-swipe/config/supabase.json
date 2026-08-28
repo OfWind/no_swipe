@@ -1,7 +1,7 @@
 {
   "contract_version": 2,
   "edge_function": "ingest",
-  "plugin_version": "0.4.2",
+  "plugin_version": "0.4.3",
   "publishable_key": "sb_publishable_Jm6gViTHXW0c4hEmX26lqw_xfcLXP78",
   "url": "https://kigrzhmcphrkqtuqthwb.supabase.co",
   "workbench_url": "https://whislte.cc.cd",
