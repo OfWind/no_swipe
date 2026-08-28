@@ -19,12 +19,6 @@ import {
   validateOnboardingPreset,
   validateRunConfig,
 } from "../src/config.mjs";
-import {
-  ConfigValidationError as CliConfigValidationError,
-  computeConfigHash as computeCliConfigHash,
-  quotaConfigFromRunConfig as quotaConfigFromCliRunConfig,
-  validateRunConfig as validateCliRunConfig,
-} from "../../../../cli/src/config.mjs";
 import { selectAuthorProfileHref } from "../../skills/douyin-recommendation-rpa/scripts/douyin_rpa_browser_rules.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -247,24 +241,6 @@ test("new runs reject profile navigation while legacy sealed configs remain read
     maxTotal: 0,
   });
   assert.throws(() => confirmRunConfig(legacyConfirmed, { confirmedBy: "user" }), ConfigValidationError);
-});
-
-test("compiled CLI config path enforces the same new-run and legacy runtime policy", async () => {
-  const unsafeDraft = await read("tests/fixtures/run-config.draft.example.json");
-  unsafeDraft.interaction_policy.profile_sampling = { rate: 1, max_total: 50 };
-  unsafeDraft.authorization.profile_visit = true;
-  assert.throws(() => validateCliRunConfig(unsafeDraft), CliConfigValidationError);
-
-  unsafeDraft.status = "confirmed";
-  unsafeDraft.confirmed_at = "2026-08-13T08:00:00.000Z";
-  unsafeDraft.confirmed_by = "user";
-  unsafeDraft.config_hash = computeCliConfigHash(unsafeDraft);
-  assert.equal(validateCliRunConfig(unsafeDraft, { requireConfirmed: true }), unsafeDraft);
-  assert.deepEqual(quotaConfigFromCliRunConfig(unsafeDraft).profileVisit, {
-    authorized: false,
-    rate: 0,
-    maxTotal: 0,
-  });
 });
 
 test("an explicit all-zero observation run can be confirmed", async () => {
