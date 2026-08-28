@@ -177,7 +177,9 @@ function validateCreatorRules(rules, pathName, issues) {
   if (rules.high_relevance.follower_count_max < rules.high_relevance.follower_count_min) add(issues, highPath, "粉丝上限不能小于下限");
   if (typeof rules.high_relevance.require_stable_recent_likes !== "boolean") add(issues, `${highPath}.require_stable_recent_likes`, "必须是布尔值");
   requireString(rules.high_relevance.stability_definition, `${highPath}.stability_definition`, issues);
-  if (rules.high_relevance.evidence_source !== "creator_profile") add(issues, `${highPath}.evidence_source`, "当前只支持 creator_profile");
+  if (!["recommendation_feed", "creator_profile"].includes(rules.high_relevance.evidence_source)) {
+    add(issues, `${highPath}.evidence_source`, "必须是 recommendation_feed 或 creator_profile");
+  }
 }
 
 export function validateAccountProfile(profile) {
@@ -342,6 +344,19 @@ function validateAuthorization(authorization, issues) {
   }
 }
 
+function validateNewRunProfileNavigationDisabled(config, issues) {
+  const sampling = config.interaction_policy?.profile_sampling;
+  if (sampling?.rate !== 0) {
+    add(issues, "$.interaction_policy.profile_sampling.rate", "新运行禁止主页访问，必须为 0");
+  }
+  if (sampling?.max_total !== 0) {
+    add(issues, "$.interaction_policy.profile_sampling.max_total", "新运行禁止主页访问，必须为 0");
+  }
+  if (config.authorization?.profile_visit !== false) {
+    add(issues, "$.authorization.profile_visit", "新运行禁止授权主页访问，必须为 false");
+  }
+}
+
 function validateVersions(versions, issues) {
   const keys = ["adapter", "classifier", "policy", "contract"];
   if (!requireExactKeys(versions, keys, keys, "$.versions", issues)) return;
@@ -362,6 +377,9 @@ export function validateRunConfig(config, { requireConfirmed = false } = {}) {
     validateGoal(config.goal, issues);
     validateAuthorization(config.authorization, issues);
     validateInteractionPolicy(config.interaction_policy, config.authorization, issues);
+    // 已确认的旧配置必须保持原文和哈希可读；其中的主页字段只用于兼容审计，
+    // quotaConfigFromRunConfig 会把实际运行权限固定降为 0/false。
+    if (config.status !== "confirmed") validateNewRunProfileNavigationDisabled(config, issues);
     validateVersions(config.versions, issues);
     if (!["draft", "waiting_for_confirmation", "confirmed"].includes(config.status)) add(issues, "$.status", "必须是 draft、waiting_for_confirmation 或 confirmed");
     if (requireConfirmed && config.status !== "confirmed") add(issues, "$.status", "运行前必须是 confirmed");
@@ -437,6 +455,9 @@ export function quotaConfigFromRunConfig(runConfig) {
       blockSize: policy.not_interested.block_size,
       rates: { apply: policy.not_interested.rate, none: cleanRate(1 - policy.not_interested.rate) },
     },
+    // Contract 1.0 的旧 sealed 配置可能仍携带正值。保留原配置和哈希，
+    // 但任何实际运行策略都固定关闭主页访问，绝不把旧值变成可执行授权。
+    profileVisit: { authorized: false, rate: 0, maxTotal: 0 },
     completionMaxDurationSeconds: 180,
     minimumRepeatHighCreatorCount: policy.follow.minimum_repeat_creator_count,
   };

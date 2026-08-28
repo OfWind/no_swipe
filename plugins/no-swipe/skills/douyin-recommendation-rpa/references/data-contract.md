@@ -75,6 +75,8 @@ No Swipe 认证用户与抖音账号是 1:n。服务端用认证后的用户 ID 
 }
 ```
 
+`author` 与 `author_href` 必须取自当前活跃 slide 内同一个 `a[href*='/user/']` 锚点的 text 与 href。`author` 在写入观察前必须经过 `normalizeAuthorName`（去掉开头连续 `@`、折叠空白）。取不到成对值时 `author_href` 留空并如实上报，不得回退到页面上第一个 `/user/` 链接。
+
 `contract_version` 固定为 `2`。`record_id` 由客户端生成，并与当前用户和会话共同构成服务端幂等键。上传不校验时间戳时区或格式；时区转换和展示在数据库到前端完成。客户端默认仍发送 UTC `Z`。
 
 `quota_decision.plannedActions` 只表示实验计划。点赞、收藏、评论、关注、不感兴趣和完播的实际结果必须在页面操作或播放器状态得到可靠反馈后，写入对应事实字段或 `user_action_result`。候选不等于已执行；没有对应授权时不得尝试。

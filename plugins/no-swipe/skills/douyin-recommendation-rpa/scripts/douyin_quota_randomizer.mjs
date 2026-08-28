@@ -36,6 +36,7 @@ export const DEFAULT_QUOTA_CONFIG = Object.freeze({
     blockSize: 100,
     rates: { apply: 0, none: 1 },
   },
+  profileVisit: { authorized: false, rate: 0, maxTotal: 0 },
   completionMaxDurationSeconds: 180,
   minimumRepeatHighCreatorCount: 2,
   stopPageStates: [
@@ -101,6 +102,9 @@ const mergeConfig = (base, overrides = {}) => ({
       ...clone(overrides.notInterested?.rates || {}),
     },
   },
+  // Homepage navigation is retired. Ignore both live overrides and values
+  // restored from legacy snapshots instead of turning them into a plan.
+  profileVisit: clone(base.profileVisit),
 });
 
 const seedToUint32 = (seed) => {
@@ -267,6 +271,7 @@ const emptyDecision = (reason, pageState = "ok") => ({
     comment: false,
     follow: false,
     notInterested: false,
+    profileVisit: false,
   },
   completionEligible: false,
   followCandidate: false,
@@ -411,6 +416,7 @@ export class DouyinQuotaPolicy {
         comment: commentCandidate,
         follow: followCandidate,
         notInterested,
+        profileVisit: false,
       },
       completionEligible,
       followCandidate,

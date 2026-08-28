@@ -26,7 +26,7 @@ Unless the user explicitly asks for another browser (system Chrome, Safari, or c
 
 This authorization gate is mandatory for every new or resumed run. Stop before all Douyin, collector, Goal, and upload actions unless `auth status` returns `connected=true`.
 
-1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. That script is the only update step: it copies cloud config and downloads this machine's binary when the pinned version is missing. Codex already refreshes the Git marketplace in the background; this task uses the activated shell. Linux is not a release target.
+1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. That script is the only update step: it copies cloud config, downloads this machine's binary when the pinned version is missing, and deletes older version directories under `~/.config/no-swipe/bin/` plus sibling Codex plugin-cache folders. Codex already refreshes the Git marketplace in the background; this task uses the activated shell. Linux is not a release target.
 2. Run `no-swipe auth status`.
 3. When `connected=true`, continue to account resolution.
 4. When not connected, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. Wait until login prints `status=approved`, then retry `auth status` once.
@@ -38,9 +38,11 @@ Keep plugin and binary updates inside bootstrap. Talk to the user only about the
 
 Attach to the user's logged-in Douyin tab. Stay on the current Douyin surface. Never open a creator homepage—own or another account—because leaving the feed for a profile can bias later recommendations toward that person.
 
-1. Read the visible nickname and Douyin ID from the current page chrome, account menu, or avatar label; do not guess a private URL and do not navigate to `/user/` or any creator profile.
+1. Read the visible nickname and Douyin ID only from the current page chrome, account menu, or logged-in-account avatar region—not the active feed card's author avatar; do not guess a private URL and do not navigate to `/user/` or any creator profile.
 2. Build `account_ref` from the visible Douyin ID and resolve only that account under `.no-swipe/accounts/`.
 3. Stay on this surface until account resolution and preset confirmation finish.
+
+Treat Douyin as a SPA. Perform at most one browser action per call, click each intended control at most once, and never use `expectNavigation` on Douyin. Verify the resulting URL or visible state in a separate bounded call that returns only compact fields. Never issue a second click from a timeout/error catch or otherwise retry blindly. If a click or read times out, stop feed actions, reuse the same browser binding and current tab, and run the bounded same-surface diagnostics below.
 
 Stop before feed actions when identity is unreliable, the resolved account differs from the visible account, or a verification/access-limit page appears.
 
@@ -106,7 +108,7 @@ no-swipe config run confirm <draft.json> --confirmed-by user --output <confirmed
 no-swipe config run validate <confirmed.json> --require-confirmed
 ```
 
-The preset intentionally sets all action permissions to `true`. Rates and caps still control execution. In particular, comment permission is enabled while comment rate and cap are `0`, so no comment is posted. Any later configuration edit invalidates `config_hash` and returns to the compact chat confirmation.
+The preset intentionally sets the executable interaction permissions—`like`, `favorite`, `comment`, `follow`, and `not_interested`—to `true`, while `profile_visit` is `false` and `profile_sampling` has rate and cap `0`. Rates and caps still control execution. In particular, comment permission is enabled while comment rate and cap are `0`, so no comment is posted. Any later configuration edit invalidates `config_hash` and returns to the compact chat confirmation.
 
 ## 4. Create one durable Goal
 
@@ -135,7 +137,7 @@ Return to the recommendation feed only after confirmation. Follow the versioned 
 - High relevance: only when follower count and recent-like stability are visible on the feed card. If that evidence is missing, keep observing and do not infer high relevance. Do not open the creator homepage.
 - Evidence missing or ambiguous: keep observing; do not infer high relevance or click not interested.
 
-Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. For each item, send visible page facts to `no-swipe step --db <sqlite> --json-file <payload.json>`. `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`. When it returns `status=needs_evidence`, stay on the feed, recall `step` with the same `record_id` and `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` set to `null`, and continue. Do not call collector `record` during the feed loop.
+Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. For each item, send visible page facts to `no-swipe step --db <sqlite> --json-file <payload.json>`. `author` and `author_href` must come from the same `a[href*='/user/']` anchor inside the active slide; write `author` only through `normalizeAuthorName`, and leave `author_href` empty when that pair cannot be read. `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`. When it returns `status=needs_evidence`, stay on the feed, recall `step` with the same `record_id` and `creatorFollowerCount`, `creatorRecentLikesStable`, and `isRecentlyPublished` set to `null`, and continue. Do not call collector `record` during the feed loop.
 
 Runtime gates remain mandatory:
 
@@ -146,8 +148,10 @@ Runtime gates remain mandatory:
 - never open a creator homepage;
 - stop on account mismatch, CAPTCHA, rate limits, login gates, unreliable DOM, or failed feed transition.
 
-On a timed-out page read, `browser unavailable`, stale/detached tab, unreliable
-card, or failed transition, stop feed actions and read
+On a timed-out click or page read, `browser unavailable`, stale/detached tab,
+unreliable card, or failed transition, stop feed actions and keep the same
+browser binding and current tab. Do not repeat the click or load the full browser
+documentation. Read
 [references/browser-diagnostics.md](references/browser-diagnostics.md). Run its
 bounded same-surface ladder before forming a root-cause claim. An external
 Chrome comparison is optional and never proves that the Codex in-app Browser recovered.

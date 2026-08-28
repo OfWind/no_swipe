@@ -1,10 +1,10 @@
-# No Swipe 交互流程（0.3.8）
+# No Swipe 交互流程（0.3.9）
 
 > 日期：2026-08-27  
 > 范围：插件安装 → 本机二进制 → 设备配对 → 推荐流采集 → 上传 → 工作台回看  
 > 工作台：`https://whislte.cc.cd`  
 > 权威 skill：`plugins/no-swipe/skills/douyin-recommendation-rpa/SKILL.md`  
-> 本文描述**现行实现**，不是架构草案。配对页自动授权、`start` 默认 1000 条 observed、follow 走配额 `plannedActions`、静默自动更新、刷流不进创作者主页，均已按 0.3.8 落地。
+> 本文描述**现行实现**，不是架构草案。配对页自动授权、`start` 默认 1000 条 observed、follow 走配额 `plannedActions`、静默自动更新、刷流不进创作者主页、引导脚本清理旧包，均已按 0.3.9 落地。
 
 读图约定：实线是请求/动作，虚线是轮询或异步结果。菱形是分支。`nsd_` 是设备 token 前缀。
 
@@ -121,7 +121,7 @@ ingest 仍接受旧 MCP 的用户 JWT（两周兼容）。新热路径只用 `ns
 flowchart TD
   S([用户发起采集任务]) --> Boot[bootstrap 下载或复用二进制]
   Boot --> Status["auth status"]
-  Status -->|connected=true| Home[打开当前抖音账号创作者主页]
+  Status -->|connected=true| Identity[留在当前抖音页面识别账号]
   Status -->|未授权| Login["auth login 打印 pair_url"]
   Login --> OpenPair[Agent 用内置浏览器打开配对 URL]
   OpenPair --> OTP{工作台是否已登录}
@@ -130,8 +130,8 @@ flowchart TD
   OTP -->|是| Auto
   Auto --> Poll["CLI 轮询 pair-poll 直到 approved"]
   Poll --> Status2["再跑一次 auth status"]
-  Status2 --> Home
-  Home --> Ask[对话确认预设或修改]
+  Status2 --> Identity
+  Identity --> Ask[对话确认预设或修改]
   Ask -->|先不启动| Stop([结束：不绑画像、不开 Goal、不刷流])
   Ask -->|使用预设并开始 / 沿用并开始 / 已澄清的修改| Mat["config preset materialize + run confirm"]
   Mat --> Goal[创建或续用持久 Goal]
@@ -161,7 +161,7 @@ sequenceDiagram
   participant Disk as ~/.config/no-swipe/bin/版本
 
   User->>Codex: 安装 / 启用 no-swipe 插件
-  Codex->>Mkt: 读插件版本 0.3.8
+  Codex->>Mkt: 读插件版本 0.3.9
   Codex->>Plug: 检出技能、预设、引导脚本
   Note over Codex,Plug: 新开任务才激活新插件壳；二进制不随浮动 tag 更新
 
@@ -174,7 +174,7 @@ sequenceDiagram
     Boot->>Stor: GET manifest.json + 本机平台 .gz
     Stor-->>Boot: gzip 包 + sha256
     Boot->>Boot: 校验 sha256，解压 chmod 755
-    Boot-->>Codex: path= ~/.config/no-swipe/bin/0.3.8/no-swipe
+    Boot-->>Codex: path= ~/.config/no-swipe/bin/0.3.9/no-swipe
   end
 ```
 
@@ -330,7 +330,7 @@ stateDiagram-v2
 
 ## 8. 账号解析、预设确认、Goal
 
-授权通过后，**第一个**浏览器动作是打开当前登录抖音账号自己的创作者主页，而不是推荐流。
+授权通过后，留在当前登录的抖音推荐流或现有页面。账号身份只从当前页面框架、账号菜单或登录账号头像区域的可见信息解析，内容卡片中的作者头像不属于认号入口；不得打开自己或任何作者的创作者主页。可见抖音号不足以可靠认号时停止，不猜测、不切主页。
 
 ```mermaid
 sequenceDiagram
@@ -338,12 +338,12 @@ sequenceDiagram
   actor User as 用户
   participant Agent as Codex Agent
   participant Br as 内置浏览器
-  participant DY as 抖音创作者主页
+  participant DY as 当前抖音页面
   participant CLI as no-swipe config
   participant Goal as Codex Goal
 
-  Agent->>Br: 打开当前账号主页（可见入口，不猜私有 URL）
-  Br->>DY: 读取昵称、抖音号
+  Agent->>Br: 复用当前抖音标签页（不切到任何主页）
+  Br->>DY: 从页面框架、账号菜单或登录账号头像区域读取昵称、抖音号
   Agent->>Agent: account_ref ← 可见抖音号
   Agent->>CLI: 解析 .no-swipe/accounts/ 下该账号目录
   Note over Agent: 一个 No Swipe 用户 : 多个抖音账号 = 1:n<br/>换号是换目录，不是改同一份画像
@@ -363,7 +363,7 @@ sequenceDiagram
 
 默认运行：`no-swipe start` → `target=1000`、`count_mode=observed`。相关条数模式需显式 `--relevant`。`--revision` 必须是正整数，不能靠 `Number("abc") === NaN` 绕过。
 
-这一次对话确认同时授权后续点赞 / 收藏 / 不感兴趣 / 主页访问 / 关注与评论**候选**。刷流循环中不再逐条询问；配额里的 `confirmationRequired` 视为已满足。
+这一次对话确认同时授权后续点赞 / 收藏 / 不感兴趣 / 关注与评论**候选**。`profile_visit` / `profile_sampling` 即使出现在旧配置中也不授权主页跳转；刷流循环中不再逐条询问，配额里的 `confirmationRequired` 视为已满足。
 
 ---
 
@@ -379,8 +379,8 @@ flowchart TD
   Gate -->|普通视频| Classify["no-swipe step --json-file 页面事实"]
 
   Classify --> Need{status}
-  Need -->|needs_evidence| Profile[打开作者主页取粉丝、近赞稳定性、是否新发]
-  Profile --> Classify2["同一 record_id 再 step"]
+  Need -->|needs_evidence| Missing[留在推荐流<br/>缺失字段设为 null]
+  Missing --> Classify2["同一 record_id 再 step"]
   Classify2 --> Commit
   Need -->|committed| Commit[SQLite observations + outbox 同一事务]
 
@@ -392,7 +392,7 @@ flowchart TD
   Count -->|是| SyncB[生命周期边界 sync]
 ```
 
-`step` 在证据不足时返回 `needs_evidence`，Agent **不得猜测**粉丝数或「是否新发」，应回 `null` 后再提交。
+`step` 在证据不足时返回 `needs_evidence`。Agent 只采用当前推荐卡片已经可见的事实；缺失的粉丝数、近期作品稳定性或「是否新发」一律填 `null`，使用同一 `record_id` 再提交。不得猜测，也不得进入作者主页补证据。
 
 短视频（预设：可靠测到 ≤60 秒）走立即车道：尝试「不感兴趣」，否则直接划走；不分配点赞、收藏、关注、完播。
 
@@ -413,15 +413,17 @@ sequenceDiagram
 
   Agent->>Step: page + runConfig + 可选 evidence
   Step->>Step: classifyRecommendation
-  alt 需要作者主页证据且尚未提供
+  alt 当前推荐卡片缺少判定证据
     Step-->>Agent: needs_evidence + record_id
-  else 可落库
-    Step->>DB: BEGIN
-    Step->>DB: INSERT observations
-    Step->>DB: INSERT outbox status=pending
-    Step->>DB: COMMIT
-    Step-->>Agent: committed + progress
+    Agent->>Step: 同一 record_id + 缺失证据字段为 null
+  else 当前证据足够
+    Note over Agent,Step: 无需补交
   end
+  Step->>DB: BEGIN
+  Step->>DB: INSERT observations
+  Step->>DB: INSERT outbox status=pending
+  Step->>DB: COMMIT
+  Step-->>Agent: committed + progress
 ```
 
 刷流循环**不等**远程 ingest。下一条可以立刻划。CSV / Excel 只在用户要看交付物时 `no-swipe export`。
@@ -543,7 +545,7 @@ flowchart TD
 
 ## 15. 浏览器异常
 
-页超时、`browser unavailable`、标签页失联、卡片不可靠、转场失败时：**先停刷流**，再按 skill 的 `references/browser-diagnostics.md` 在同一浏览器表面做有界诊断。外开系统 Chrome 对比是可选项，不能用来证明内置浏览器已经恢复。
+抖音按 SPA 控制：同一意图最多点击一次，不使用 `expectNavigation`；点击与 URL / 可见状态校验拆成独立的有界调用，只读取紧凑字段。页超时、`browser unavailable`、标签页失联、卡片不可靠或转场失败时，**先停刷流**，不盲目重试点击、不加载整份浏览器文档；复用同一 browser binding 和标签页，按 skill 的 `references/browser-diagnostics.md` 做同表面有界诊断。外开系统 Chrome 对比是可选项，不能用来证明内置浏览器已经恢复。
 
 ---
 
@@ -601,7 +603,7 @@ flowchart LR
   end
 ```
 
-Agent **不要**做的事：向用户要 OpenAI Key、设备 token、OTP、邮箱密码；把 `run_id` / 路径 / hash 写进用户可见 Goal；在刷流循环里逐条确认关注；授权失败后仍去开抖音。
+Agent **不要**做的事：向用户要 OpenAI Key、设备 token、OTP、邮箱密码；把 `run_id` / 路径 / hash 写进用户可见 Goal；打开自己或作者的创作者主页；在刷流循环里逐条确认关注；授权失败后仍去开抖音。
 
 ---
 
@@ -636,3 +638,4 @@ Agent **不要**做的事：向用户要 OpenAI Key、设备 token、OTP、邮�
 | 2026-08-27 | 0.3.6 | 按已发布实现整理全链路交互：自动配对、observed 默认、配额 follow、Storage 分发 |
 | 2026-08-27 | 0.3.7 | 静默自动更新：新开任务走 bootstrap，用户不再输入 upgrade 命令 |
 | 2026-08-27 | 0.3.8 | 刷流与认号都不打开创作者主页，缺证据在推荐流上报空值 |
+| 2026-08-28 | 0.3.9 | 引导脚本删除旧二进制和旧插件缓存；预设关闭主页访问 |

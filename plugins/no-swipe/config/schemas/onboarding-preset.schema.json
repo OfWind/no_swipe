@@ -43,8 +43,25 @@
       "required": ["goal", "interaction_policy", "authorization", "versions"],
       "properties": {
         "goal": {"type": "object"},
-        "interaction_policy": {"type": "object"},
-        "authorization": {"type": "object"},
+        "interaction_policy": {
+          "type": "object",
+          "properties": {
+            "profile_sampling": {
+              "type": "object",
+              "required": ["rate", "max_total"],
+              "properties": {
+                "rate": {"const": 0},
+                "max_total": {"const": 0}
+              }
+            }
+          }
+        },
+        "authorization": {
+          "type": "object",
+          "properties": {
+            "profile_visit": {"const": false}
+          }
+        },
         "versions": {"type": "object"}
       }
     }

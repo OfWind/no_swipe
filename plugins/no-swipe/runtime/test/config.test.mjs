@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   ConfigValidationError,
   bindAccountProfile,
+  computeConfigHash,
   confirmRunConfig,
   createProfileSnapshot,
   listAccountProfiles,
@@ -18,6 +19,12 @@ import {
   validateOnboardingPreset,
   validateRunConfig,
 } from "../src/config.mjs";
+import {
+  ConfigValidationError as CliConfigValidationError,
+  computeConfigHash as computeCliConfigHash,
+  quotaConfigFromRunConfig as quotaConfigFromCliRunConfig,
+  validateRunConfig as validateCliRunConfig,
+} from "../../../../cli/src/config.mjs";
 import { selectAuthorProfileHref } from "../../skills/douyin-recommendation-rpa/scripts/douyin_rpa_browser_rules.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -45,10 +52,14 @@ test("onboarding preset materializes one compact confirmed-ready decision", asyn
   assert.deepEqual(result.profile.positive_topics, []);
   assert.equal(result.profile.content_rules.short_video_max_duration_seconds, 60);
   assert.equal(result.profile.content_rules.short_video_behavior, "not_interested_or_skip");
+  assert.deepEqual(result.profile.content_rules.recent_evidence_sources, ["feed_published_at"]);
+  assert.equal(result.profile.creator_rules.high_relevance.evidence_source, "recommendation_feed");
   assert.equal(result.run_config.interaction_policy.rules[0].like_rate, 0.1);
   assert.equal(result.run_config.interaction_policy.follow.rate, 0.03);
   assert.equal(result.run_config.interaction_policy.rules[0].comment_rate, 0);
-  assert.ok(Object.values(result.run_config.authorization).every(Boolean));
+  assert.deepEqual(result.run_config.interaction_policy.profile_sampling, { rate: 0, max_total: 0 });
+  assert.equal(result.run_config.authorization.profile_visit, false);
+  assert.ok(Object.entries(result.run_config.authorization).every(([key, value]) => key === "profile_visit" || value === true));
   assert.equal(validateRunConfig(result.run_config), result.run_config);
 });
 
@@ -140,9 +151,11 @@ test("short-video duration and behavior must be configured together", async () =
   assert.throws(() => validateOnboardingPreset(preset), ConfigValidationError);
 });
 
-test("product defaults expose all permissions but still require confirmation", async () => {
+test("product defaults keep profile visits off and still require confirmation", async () => {
   const defaults = await read("config/defaults/safe-runtime.json");
-  assert.ok(Object.values(defaults.authorization_defaults).every(Boolean));
+  assert.equal(defaults.authorization_defaults.profile_visit, false);
+  assert.deepEqual(defaults.interaction_policy_defaults.profile_sampling, { rate: 0, max_total: 0 });
+  assert.ok(Object.entries(defaults.authorization_defaults).every(([key, value]) => key === "profile_visit" || value === true));
   assert.equal(defaults.require_confirmed_config, true);
 });
 
@@ -210,6 +223,50 @@ test("positive state-changing rates require matching authorization", async () =>
   );
 });
 
+test("new runs reject profile navigation while legacy sealed configs remain readable but runtime-disabled", async () => {
+  const unsafeDraft = await read("tests/fixtures/run-config.draft.example.json");
+  unsafeDraft.interaction_policy.profile_sampling = { rate: 1, max_total: 50 };
+  unsafeDraft.authorization.profile_visit = true;
+  assert.throws(
+    () => validateRunConfig(unsafeDraft),
+    (error) => error instanceof ConfigValidationError
+      && error.issues.some((issue) => issue.path === "$.interaction_policy.profile_sampling.rate")
+      && error.issues.some((issue) => issue.path === "$.interaction_policy.profile_sampling.max_total")
+      && error.issues.some((issue) => issue.path === "$.authorization.profile_visit"),
+  );
+
+  const legacyConfirmed = structuredClone(unsafeDraft);
+  legacyConfirmed.status = "confirmed";
+  legacyConfirmed.confirmed_at = "2026-08-13T08:00:00.000Z";
+  legacyConfirmed.confirmed_by = "user";
+  legacyConfirmed.config_hash = computeConfigHash(legacyConfirmed);
+  assert.equal(validateRunConfig(legacyConfirmed, { requireConfirmed: true }), legacyConfirmed);
+  assert.deepEqual(quotaConfigFromRunConfig(legacyConfirmed).profileVisit, {
+    authorized: false,
+    rate: 0,
+    maxTotal: 0,
+  });
+  assert.throws(() => confirmRunConfig(legacyConfirmed, { confirmedBy: "user" }), ConfigValidationError);
+});
+
+test("compiled CLI config path enforces the same new-run and legacy runtime policy", async () => {
+  const unsafeDraft = await read("tests/fixtures/run-config.draft.example.json");
+  unsafeDraft.interaction_policy.profile_sampling = { rate: 1, max_total: 50 };
+  unsafeDraft.authorization.profile_visit = true;
+  assert.throws(() => validateCliRunConfig(unsafeDraft), CliConfigValidationError);
+
+  unsafeDraft.status = "confirmed";
+  unsafeDraft.confirmed_at = "2026-08-13T08:00:00.000Z";
+  unsafeDraft.confirmed_by = "user";
+  unsafeDraft.config_hash = computeCliConfigHash(unsafeDraft);
+  assert.equal(validateCliRunConfig(unsafeDraft, { requireConfirmed: true }), unsafeDraft);
+  assert.deepEqual(quotaConfigFromCliRunConfig(unsafeDraft).profileVisit, {
+    authorized: false,
+    rate: 0,
+    maxTotal: 0,
+  });
+});
+
 test("an explicit all-zero observation run can be confirmed", async () => {
   const draft = await read("tests/fixtures/run-config.draft.example.json");
   for (const rule of draft.interaction_policy.rules) {
@@ -256,6 +313,7 @@ test("run config maps to quota buckets without product-profile defaults", async 
   });
   assert.equal(quota.follow.rates.candidate, 0);
   assert.equal(quota.notInterested.rates.apply, 0);
+  assert.deepEqual(quota.profileVisit, { authorized: false, rate: 0, maxTotal: 0 });
   assert.equal(quota.runConfigHash, confirmed.config_hash);
 });
 

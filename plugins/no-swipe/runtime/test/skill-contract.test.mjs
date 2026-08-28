@@ -129,6 +129,35 @@ test("skill never opens a creator homepage for identity or evidence", async () =
   assert.doesNotMatch(skill, /open the author homepage|open that video's creator homepage|Stay on the homepage/);
 });
 
+test("skill keeps Douyin browser actions SPA-safe, bounded, and on one controlled tab", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /Treat Douyin as a SPA/);
+  assert.match(skill, /at most one browser action per call/);
+  assert.match(skill, /never use `expectNavigation` on Douyin/);
+  assert.match(
+    skill,
+    /Verify the resulting URL or visible state in a separate bounded call that returns only compact fields/,
+  );
+  assert.match(skill, /Never issue a second click from a timeout\/error catch or otherwise retry blindly/);
+  assert.match(skill, /reuse the same browser binding and current tab/);
+
+  const expectNavigationStatements = skill
+    .split(/[\n.!?]+/)
+    .filter((statement) => statement.includes("expectNavigation"));
+  assert.ok(expectNavigationStatements.length > 0, "the Douyin navigation ban must stay explicit");
+  for (const statement of expectNavigationStatements) {
+    assert.match(
+      statement,
+      /(?:never|do not|must not)[^\n]*expectNavigation|expectNavigation[^\n]*(?:never|do not|must not)/i,
+      "every expectNavigation mention must be a prohibition",
+    );
+  }
+});
+
 test("skill routes browser anomalies to same-surface diagnostics", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),

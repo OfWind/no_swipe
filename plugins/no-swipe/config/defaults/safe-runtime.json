@@ -9,7 +9,10 @@
     "comment": true,
     "follow": true,
     "not_interested": true,
-    "profile_visit": true
+    "profile_visit": false
+  },
+  "interaction_policy_defaults": {
+    "profile_sampling": {"rate": 0, "max_total": 0}
   },
   "stop_on_account_mismatch": true,
   "stop_on_unknown_page_state": true,

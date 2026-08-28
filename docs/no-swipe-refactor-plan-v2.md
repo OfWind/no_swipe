@@ -141,7 +141,7 @@ sequenceDiagram
     - `logout`：删本地凭据
 14. **`sync`**：outbox 直连 POST ingest（批 ≤100，按 `accepted` / `duplicated` ack），移植 `uploader.py` 的重试 / 退避 / dead。**删除** `mcp-next` / `mcp-ack` / MCP 工具
 15. **刷流 step（零 Node 的关键）**：把 `douyin_browser_runner.mjs` 的 `processOne` 语义收成 `no-swipe step`（或等价子命令）。stdin/参数接收本条页面事实与已确认 RunConfig，stdout 返回决策与落盘结果；SQLite/outbox 在二进制内同一事务提交。agent 只操 Codex 浏览器 + spawn `no-swipe`。不要保留「agent 去 `import` runner.mjs」
-    - **证据两阶段协议**（替代进程内 `resolveProfileEvidence` 回调）：`step` 判定为高相关候选且缺少作者主页证据时，不落盘、返回 `status=needs_evidence` 及所需字段（`creatorFollowerCount`、`creatorRecentLikesStable`、`isRecentlyPublished`）；agent 打开作者主页取证后，携带同一 `record_id` 与证据字段重调 `step` 完成决策与落盘。证据不可得时以 `null` 重调，不得猜测。仅此路径访问主页，保持"取证不是配额动作"的现行语义
+    - **证据两阶段协议**（替代进程内 `resolveProfileEvidence` 回调）：`step` 判定为高相关候选且当前推荐卡片缺少证据时，不落盘、返回 `status=needs_evidence` 及所需字段（`creatorFollowerCount`、`creatorRecentLikesStable`、`isRecentlyPublished`）；agent 保持在推荐流，只传入当前卡片可见事实，缺失字段设为 `null`，再携带同一 `record_id` 重调 `step` 完成决策与落盘。不得猜测，不得打开自己或作者的创作者主页。早期计划中的主页取证路径自 0.3.8 起废弃
 16. **测试**：bun test 等价重写 `tests/collector/`，并补 step 契约测试（与现 runner 的停止/落盘语义对齐）
 
 ## Phase 4 — 打包与分发

@@ -51,7 +51,10 @@
             "follower_count_max": {"type": "integer", "minimum": 0},
             "require_stable_recent_likes": {"type": "boolean"},
             "stability_definition": {"type": "string", "minLength": 1},
-            "evidence_source": {"const": "creator_profile"}
+            "evidence_source": {
+              "enum": ["recommendation_feed", "creator_profile"],
+              "$comment": "creator_profile is accepted only to read legacy persisted profiles; new presets use recommendation_feed and runtime never navigates to a homepage."
+            }
           }
         }
       }

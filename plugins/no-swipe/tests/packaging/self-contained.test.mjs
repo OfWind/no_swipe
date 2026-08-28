@@ -1,10 +1,67 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const REPOSITORY_ROOT = path.resolve(ROOT, "../..");
+
+const SHIPPED_PROMPT_ENTRYPOINTS = [
+  ".codex-plugin/plugin.json",
+  "skills/douyin-recommendation-rpa/SKILL.md",
+  "skills/douyin-recommendation-rpa/agents/openai.yaml",
+];
+
+const CURRENT_IMPLEMENTATION_DOCS = [
+  "docs/no-swipe-refactor-spec-v1.md",
+  "docs/no-swipe-refactor-plan-v2.md",
+  "docs/no-swipe-interaction-flows.md",
+];
+
+function proseStatements(source) {
+  return source
+    .replaceAll("\r", "")
+    .split(/[\n.!?。！？]+/)
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
+function isClearlyHistorical(statement) {
+  return /(?:previously|formerly|legacy|historical|old behavior|changelog|旧版|旧行为|早期计划|历史|曾经|此前|原先|过去|变更前|已移除|不再)/i.test(statement)
+    || /^\|\s*20\d{2}-\d{2}-\d{2}\s*\|/.test(statement);
+}
+
+function isExplicitlyProhibited(statement) {
+  return /(?:never|do not|don't|must not|without opening|禁止|不要|不得|切勿|避免|无需|不能|不可|不(?:再|应|可|要)?(?:打开|进入|访问|跳转|前往|停留)|不进)/i.test(statement);
+}
+
+function findProfileNavigationInstructions(source) {
+  const navigation = /(?:\b(?:open|visit|enter|navigate(?:\s+to)?|go\s+to|stay\s+on)\b|打开|进入|访问|跳转(?:到|至)?|前往|停留(?:在)?)/i;
+  const profileTarget = /(?:\b(?:active|current|logged[- ]in|account(?:'s)?|own|author(?:'s)?|creator(?:'s)?)\b[^\n]{0,80}\b(?:profile|home\s?page)\b|\b(?:author|creator)\b[^\n]{0,40}\b(?:profile|home\s?page)\b|(?:当前|登录账号|自己|本账号|作者|创作者|达人|账号)[^\n]{0,50}(?:主页|首页|个人页|资料页))/i;
+  return proseStatements(source).filter((statement) => (
+    navigation.test(statement)
+    && profileTarget.test(statement)
+    && !isExplicitlyProhibited(statement)
+    && !isClearlyHistorical(statement)
+  ));
+}
+
+function hasCurrentSurfaceIdentityInstruction(source) {
+  const currentSurface = /(?:\bcurrent(?:ly visible)? (?:Douyin )?(?:page|surface|feed)\b|\bcurrent page chrome\b|\baccount menu\b|\bavatar(?: label| area)?\b|当前(?:抖音|推荐流)?(?:页面|界面)|推荐流(?:页面|界面)|账号菜单|头像(?:区域|标签|入口)?)/i;
+  const identity = /(?:\b(?:identity|account|nickname|Douyin ID)\b|账号|身份|昵称|抖音号)/i;
+  const resolution = /(?:\b(?:read|resolve|identify|verify|recognize)\b|读取|识别|确认|核验|认号)/i;
+  return proseStatements(source).some((statement) => (
+    currentSurface.test(statement)
+    && identity.test(statement)
+    && resolution.test(statement)
+  ));
+}
 
 async function walk(directory) {
   const entries = await fs.readdir(directory, { withFileTypes: true });
@@ -63,6 +120,34 @@ test("bootstrap scripts and cli version are packaged for the host binary", async
   assert.match(supabase.releases_base_url, /no-swipe-releases/);
 });
 
+test("bootstrap keeps the current binary and deletes older version directories", async () => {
+  const version = JSON.parse(await fs.readFile(path.join(ROOT, "config/cli-version.json"), "utf8")).version;
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "no-swipe-bootstrap-"));
+  const binRoot = path.join(home, ".config/no-swipe/bin");
+  try {
+    await fs.mkdir(path.join(binRoot, "0.3.5"), { recursive: true });
+    await fs.writeFile(path.join(binRoot, "0.3.5/no-swipe"), "old");
+    await fs.mkdir(path.join(binRoot, version), { recursive: true });
+    const currentBin = path.join(binRoot, version, "no-swipe");
+    await fs.writeFile(currentBin, "current");
+    await fs.chmod(currentBin, 0o755);
+    await fs.mkdir(path.join(binRoot, "keep-me"), { recursive: true });
+    await fs.writeFile(path.join(home, ".config/no-swipe/credentials.json"), "{\"ok\":true}\n");
+    const { stdout } = await execFileAsync("bash", [path.join(ROOT, "scripts/bootstrap.sh")], {
+      env: { ...process.env, HOME: home, NO_SWIPE_HOME: home },
+    });
+    const result = JSON.parse(stdout);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.pruned_bins, ["0.3.5"]);
+    await fs.access(path.join(binRoot, version, "no-swipe"));
+    await fs.access(path.join(binRoot, "keep-me"));
+    await fs.access(path.join(home, ".config/no-swipe/credentials.json"));
+    await assert.rejects(fs.access(path.join(binRoot, "0.3.5")));
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
 test("marketplace and plugin versions stay paired for Codex cache activation", async () => {
   const version = JSON.parse(await fs.readFile(path.join(ROOT, "config/cli-version.json"), "utf8")).version;
   const plugin = JSON.parse(await fs.readFile(path.join(ROOT, ".codex-plugin/plugin.json"), "utf8"));
@@ -83,6 +168,56 @@ test("product entrypoints do not contain the former test persona or implicit exe
   assert.doesNotMatch(combined, /executeFollow\s*:\s*true|executeComments\s*:\s*true/);
   assert.doesNotMatch(manifestContent, /科技|3C|人工智能/i);
   assert.doesNotMatch(sources[2], /科技|3C|人工智能/i);
+});
+
+test("all shipped prompts resolve identity on the current surface without profile navigation", async () => {
+  for (const file of SHIPPED_PROMPT_ENTRYPOINTS) {
+    const source = await fs.readFile(path.join(ROOT, file), "utf8");
+    assert.deepEqual(
+      findProfileNavigationInstructions(source),
+      [],
+      `${file} must not instruct the agent to open an account or creator profile`,
+    );
+    assert.ok(
+      hasCurrentSurfaceIdentityInstruction(source),
+      `${file} must resolve the visible Douyin identity from the current page, account menu, or avatar`,
+    );
+  }
+});
+
+test("current implementation docs do not prescribe own or author profile navigation", async () => {
+  for (const file of CURRENT_IMPLEMENTATION_DOCS) {
+    const source = await fs.readFile(path.join(REPOSITORY_ROOT, file), "utf8");
+    assert.deepEqual(
+      findProfileNavigationInstructions(source),
+      [],
+      `${file} contains a present-tense instruction to navigate to an account or creator profile`,
+    );
+  }
+});
+
+test("shipped preset keeps creator-profile traversal disabled", async () => {
+  const preset = JSON.parse(await fs.readFile(
+    path.join(ROOT, "config/presets/douyin-youth-white-collar.v1.json"),
+    "utf8",
+  ));
+  const interactionPolicy = preset.run_defaults.interaction_policy;
+  const authorization = preset.run_defaults.authorization;
+
+  assert.equal(authorization.profile_visit, false);
+  assert.deepEqual(interactionPolicy.profile_sampling, { rate: 0, max_total: 0 });
+  assert.deepEqual(
+    preset.profile.content_rules.recent_evidence_sources,
+    ["feed_published_at"],
+  );
+  assert.equal(
+    preset.profile.creator_rules.high_relevance.evidence_source,
+    "recommendation_feed",
+  );
+
+  const userFacingText = [preset.user_facing_copy, preset.confirmation_notice].join("\n");
+  assert.deepEqual(findProfileNavigationInstructions(userFacingText), []);
+  assert.doesNotMatch(userFacingText, /(?:作者主页(?:作品)?列表|主页访问权限|creator_profile)/i);
 });
 
 test("retired Node runner and Python collector are not shipped", async () => {

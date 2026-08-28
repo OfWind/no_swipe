@@ -9,13 +9,61 @@ case "$OS-$ARCH" in
   Darwin-x86_64) TARGET="darwin-x64" ;;
   *) echo "unsupported platform $OS $ARCH" >&2; exit 1 ;;
 esac
-DEST="$HOME/.config/no-swipe/bin/$VERSION"
+HOME_ROOT="${NO_SWIPE_HOME:-$HOME}"
+DEST="$HOME_ROOT/.config/no-swipe/bin/$VERSION"
 BIN="$DEST/no-swipe"
-mkdir -p "$HOME/.config/no-swipe"
-chmod 700 "$HOME/.config/no-swipe"
-cp "$ROOT/config/supabase.json" "$HOME/.config/no-swipe/supabase.json"
+
+json_list() {
+  local first=1 item
+  printf '['
+  for item in "$@"; do
+    [[ -n "$item" ]] || continue
+    if (( first )); then first=0; else printf ','; fi
+    printf '"%s"' "$item"
+  done
+  printf ']'
+}
+
+# 只删版本目录，不动 credentials / supabase.json / 当前正在用的包。
+prune_old_packages() {
+  local pruned_bins=() pruned_plugins=() dir name parent
+  if [[ -d "$HOME_ROOT/.config/no-swipe/bin" ]]; then
+    shopt -s nullglob
+    for dir in "$HOME_ROOT/.config/no-swipe/bin"/*; do
+      [[ -d "$dir" ]] || continue
+      name="$(basename "$dir")"
+      if [[ "$name" != "$VERSION" && "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        rm -rf "$dir"
+        pruned_bins+=("$name")
+      fi
+    done
+    shopt -u nullglob
+  fi
+  parent="$(dirname "$ROOT")"
+  if [[ "$(basename "$parent")" == "no-swipe" && "$(basename "$(dirname "$parent")")" == "no-swipe-marketplace" ]]; then
+    shopt -s nullglob
+    for dir in "$parent"/*; do
+      [[ -d "$dir" && "$dir" != "$ROOT" ]] || continue
+      name="$(basename "$dir")"
+      if [[ "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+codex\. ]]; then
+        rm -rf "$dir"
+        pruned_plugins+=("$name")
+      fi
+    done
+    shopt -u nullglob
+  fi
+  PRUNED_BINS="$(json_list "${pruned_bins[@]+"${pruned_bins[@]}"}")"
+  PRUNED_PLUGINS="$(json_list "${pruned_plugins[@]+"${pruned_plugins[@]}"}")"
+}
+
+mkdir -p "$HOME_ROOT/.config/no-swipe"
+chmod 700 "$HOME_ROOT/.config/no-swipe"
+cp "$ROOT/config/supabase.json" "$HOME_ROOT/.config/no-swipe/supabase.json"
+
 if [[ -x "$BIN" ]]; then
-  echo "{\"ok\":true,\"path\":\"$BIN\",\"skipped\":true}"
+  prune_old_packages
+  printf '{"ok":true,"path":"%s","skipped":true,"pruned_bins":%s,"pruned_plugins":%s}\n' \
+    "$BIN" "$PRUNED_BINS" "$PRUNED_PLUGINS"
   exit 0
 fi
 CONFIG="$ROOT/config/supabase.json"
@@ -35,4 +83,6 @@ fi
 gzip -dc "$TMP" > "$BIN"
 rm -f "$TMP"
 chmod 755 "$BIN"
-echo "{\"ok\":true,\"path\":\"$BIN\",\"version\":\"$VERSION\",\"target\":\"$TARGET\"}"
+prune_old_packages
+printf '{"ok":true,"path":"%s","version":"%s","target":"%s","pruned_bins":%s,"pruned_plugins":%s}\n' \
+  "$BIN" "$VERSION" "$TARGET" "$PRUNED_BINS" "$PRUNED_PLUGINS"

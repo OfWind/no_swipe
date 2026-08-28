@@ -101,14 +101,19 @@ export function sampleTruncatedNormal(mean, standardDeviation, minimum, maximum,
   return Math.min(maximum, Math.max(minimum, mean));
 }
 
+export function normalizeAuthorName(raw) {
+  return String(raw || "").replace(/^@+/, "").replace(/\s+/g, " ").trim();
+}
+
 export function selectAuthorProfileHref(links, author) {
   const candidates = (links || []).filter((link) => /\/user\//.test(String(link?.href || "")));
-  const normalizedAuthor = String(author || "").replace(/\s+/g, " ").trim().replace(/^@/, "").toLowerCase();
-  if (normalizedAuthor) {
-    const named = candidates.find((link) => String(link.text || "").replace(/\s+/g, " ").trim().replace(/^@/, "").toLowerCase().includes(normalizedAuthor));
-    if (named) return named.href;
-  }
-  return candidates[0]?.href || "";
+  const normalizedAuthor = normalizeAuthorName(author).toLowerCase();
+  if (!normalizedAuthor) return "";
+  const named = candidates.find((link) => {
+    const text = normalizeAuthorName(link.text).toLowerCase();
+    return Boolean(text) && (text === normalizedAuthor || text.includes(normalizedAuthor) || normalizedAuthor.includes(text));
+  });
+  return named?.href || "";
 }
 
 export function chooseDwellSeconds(raw, classification, random = Math.random, platformConfig = {}) {

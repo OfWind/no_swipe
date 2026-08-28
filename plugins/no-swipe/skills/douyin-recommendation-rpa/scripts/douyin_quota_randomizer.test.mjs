@@ -37,7 +37,15 @@ assert.deepEqual(safeDecision.plannedActions, {
   comment: false,
   follow: false,
   notInterested: false,
+  profileVisit: false,
 });
+assert.deepEqual(safePolicy.config.profileVisit, { authorized: false, rate: 0, maxTotal: 0 });
+
+const legacyProfilePolicy = createDouyinQuotaPolicy({
+  config: { profileVisit: { authorized: true, rate: 1, maxTotal: 1000 } },
+});
+assert.deepEqual(legacyProfilePolicy.config.profileVisit, { authorized: false, rate: 0, maxTotal: 0 });
+assert.equal(legacyProfilePolicy.decide({ awemeId: "legacy-profile", relevance: "high" }).plannedActions.profileVisit, false);
 
 const policy = createDouyinQuotaPolicy({ config: { seed: "quota-unit-test", ...EXPLICIT_TEST_CONFIG } });
 const highDecisions = [];

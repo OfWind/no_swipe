@@ -153,5 +153,32 @@
     "confirmed_at": {"type": "string", "format": "date-time"},
     "confirmed_by": {"type": "string", "minLength": 1},
     "config_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"enum": ["draft", "waiting_for_confirmation"]}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "interaction_policy": {
+            "properties": {
+              "profile_sampling": {
+                "properties": {
+                  "rate": {"const": 0},
+                  "max_total": {"const": 0}
+                }
+              }
+            }
+          },
+          "authorization": {
+            "properties": {
+              "profile_visit": {"const": false}
+            }
+          }
+        }
+      }
+    }
+  ]
 }

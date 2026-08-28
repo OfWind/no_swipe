@@ -2,8 +2,8 @@
   "schema_version": "1.0.0",
   "preset_id": "douyin-youth-white-collar.v1",
   "display_name": "青年白领 / Z世代 · 广谱探索",
-  "user_facing_copy": "面向18–40岁、一二线城市青年、白领和Z世代。60秒及以下视频立即点不感兴趣，未获授权、名额已满或操作失败时立即划走；不进入观看、主页核验或正向互动。影视剪辑、明星或公司账号、颜值、擦边、封建迷信、打假、军事热点（含影视化内容），以及解说他人游戏的创作者，统一点不感兴趣；其他内容都可以看。点赞少于1000的视频直接划走，能够从视频发布时间或作者主页列表确认是新发布的视频除外。高相关指10万–20万粉丝、且近期作品点赞相对平稳的创作者：点赞率10%，收藏率3%，关注率3%，不评论。默认观察1000条，通常需要数小时，可在确认时直接改小目标。",
-  "confirmation_notice": "将默认开启点赞、收藏、评论、关注、不感兴趣和主页访问权限；确认即一次性授权本轮全部互动按上述比例与上限自动执行（关注全程不超过3次），运行中不再逐条询问；评论率为0，因此本预设不会发表评论。点击“使用预设”即确认画像、运行参数与上述授权。",
+  "user_facing_copy": "面向18–40岁、一二线城市青年、白领和Z世代。60秒及以下视频立即点不感兴趣，未获授权、名额已满或操作失败时立即划走；不进入观看、主页核验或正向互动。影视剪辑、明星或公司账号、颜值、擦边、封建迷信、打假、军事热点（含影视化内容），以及解说他人游戏的创作者，统一点不感兴趣；其他内容都可以看。点赞少于1000的视频直接划走，仅在当前推荐流页面能够可靠确认是新发布时例外。高相关仅依据当前推荐流页面可见证据判定：粉丝量在10万–20万且近期作品点赞相对平稳；证据不足时继续观察，不进入作者主页补采。高相关内容点赞率10%，收藏率3%，关注率3%，不评论。默认观察1000条，通常需要数小时，可在确认时直接改小目标。",
+  "confirmation_notice": "将默认开启点赞、收藏、评论、关注和不感兴趣权限；主页访问固定关闭。确认即一次性授权本轮允许的互动按上述比例与上限自动执行（关注全程不超过3次），运行中不再逐条询问；评论率为0，因此本预设不会发表评论。点击“使用预设”即确认画像、运行参数与上述授权。",
   "profile": {
     "name": "青年白领 / Z世代 · 广谱探索",
     "selection_mode": "exclude_only",
@@ -22,16 +22,16 @@
       "short_video_behavior": "not_interested_or_skip",
       "minimum_like_count": 1000,
       "below_minimum_behavior": "skip_unless_recent",
-      "recent_evidence_sources": ["feed_published_at", "creator_profile_video_list"],
-      "recent_definition": "页面可见发布时间或作者主页作品列表能够可靠表明该视频为新发布"
+      "recent_evidence_sources": ["feed_published_at"],
+      "recent_definition": "当前推荐流页面可见发布时间能够可靠表明该视频为新发布"
     },
     "creator_rules": {
       "high_relevance": {
         "follower_count_min": 100000,
         "follower_count_max": 200000,
         "require_stable_recent_likes": true,
-        "stability_definition": "作者主页近期作品点赞没有明显依赖单条爆款，整体相对平稳",
-        "evidence_source": "creator_profile"
+        "stability_definition": "当前推荐流页面可见的近期作品点赞没有明显依赖单条爆款，整体相对平稳",
+        "evidence_source": "recommendation_feed"
       }
     },
     "classification": {"high_match_count": 2}
@@ -62,7 +62,7 @@
       "comment": {"max_total": 0, "approval_mode": "per_run", "guidance": "不评论"},
       "follow": {"eligible_relevance": ["high"], "rate": 0.03, "max_total": 3, "minimum_repeat_creator_count": 0, "block_size": 100},
       "not_interested": {"rate": 1, "max_total": 1000, "block_size": 100},
-      "profile_sampling": {"rate": 1, "max_total": 1000}
+      "profile_sampling": {"rate": 0, "max_total": 0}
     },
     "authorization": {
       "like": true,
@@ -70,7 +70,7 @@
       "comment": true,
       "follow": true,
       "not_interested": true,
-      "profile_visit": true
+      "profile_visit": false
     },
     "versions": {
       "adapter": "douyin.v1",
