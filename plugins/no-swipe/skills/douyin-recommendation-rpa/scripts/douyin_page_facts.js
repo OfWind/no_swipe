@@ -63,19 +63,31 @@
     follow_visible: Boolean(q('[data-e2e="feed-follow-icon"]')),
     // Post-action verification: same data-e2e-state markers the retired
     // runner used. null means the marker is unreadable, not "false".
+    // Negative-first state resolution: the resting markers are
+    // video-player-no-digged / video-player-no-collect, and their substrings
+    // match every positive word, so negatives must win. The follow control
+    // carries no state marker at all — only a 关注成功 toast can confirm it,
+    // and null stays honest.
     action_state: (() => {
-      const stateOf = (sel, pattern) => {
+      const stateOf = (sel, negatives, positives) => {
         const el = q(sel);
         if (!el) return null;
-        return pattern.test(`${el.getAttribute("data-e2e-state") || ""} ${String(el.className || "")}`);
+        const raw = `${el.getAttribute("data-e2e-state") || ""} ${String(el.className || "")}`.toLowerCase();
+        if (negatives.some((token) => raw.includes(token))) return false;
+        if (positives.some((token) => raw.includes(token))) return true;
+        return null;
       };
       return {
-        liked: stateOf('[data-e2e="video-player-digg"]', /is-digged|digged|liked|active|selected/i),
-        favorited: stateOf('[data-e2e="video-player-collect"]', /is-favorited|is-collect|favorited|collected|active|selected/i),
-        followed: stateOf('[data-e2e="feed-follow-icon"]', /is-followed|followed|active|selected/i),
+        liked: stateOf('[data-e2e="video-player-digg"]', ["no-digged", "not-digged"], ["is-digged", "digged", " liked ", " selected"]),
+        favorited: stateOf('[data-e2e="video-player-collect"]', ["no-collect", "not-collect"], ["is-favorited", "is-collect", "favorited", "collected", " selected"]),
+        followed: (() => {
+          const control = stateOf('[data-e2e="feed-follow-icon"]', ["no-follow", "not-follow"], ["is-followed", "followed", " selected"]);
+          if (control !== null) return control;
+          return /关注成功/.test((document.body && document.body.innerText) || "") ? true : null;
+        })(),
       };
     })(),
-    can_switch_next: Boolean(document.querySelector('[data-e2e="video-switch-next-arrow"]')),
+    can_switch_next: Boolean(q('[data-e2e="video-switch-next-arrow"]')),
     stop_text_hit: stopTextHit,
   };
 }

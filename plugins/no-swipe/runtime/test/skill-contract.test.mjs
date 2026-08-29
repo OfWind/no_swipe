@@ -143,8 +143,15 @@ test("skill pins locator-click choreography, the start command, and the evaluate
   assert.match(skill, /waitForTimeout/);
   assert.match(skill, /Each planned control is clicked at most once per item/);
   assert.match(skill, /\{"attempted": true, "success": false\}/);
+  assert.match(skill, /Dwell before clicking/);
+  assert.match(skill, /at least 5 seconds on the slide/);
+  assert.match(skill, /tab\.cua\.keypress\(\{ keys: \["ARROWDOWN"\] \}\)/);
+  assert.match(skill, /one-time fallback on a different control/);
   assert.match(skill, /Advance only after `status=committed`/);
-  assert.match(skill, /no second click and no navigation/);
+  assert.match(skill, /no further clicks and no navigation/);
+  assert.match(skill, /https:\/\/www\.douyin\.com\/video\/<data-aweme-id>/);
+  assert.match(skill, /cache-busting query/);
+  assert.match(skill, /#418\/#422/);
   assert.match(skill, /never hardcode a version remembered from an earlier task/);
   assert.match(skill, /execute each planned control at most once with the pinned locator choreography/);
 });

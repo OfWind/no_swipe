@@ -274,6 +274,14 @@ test("page-fact extractor ships as an evaluate-ready adapter with stable selecto
   // namespace functions (Number.*, Math.*) are guaranteed to exist there.
   assert.doesNotMatch(extractor, /[^.\w]parseFloat\b/, "must use Number.parseFloat, not the stripped bare global");
   assert.doesNotMatch(extractor, /setTimeout|dispatchEvent/, "timers and event dispatch do not work in the read-only scope");
+  // Negative-first state resolution: the resting markers video-player-no-digged
+  // / no-collect substring-match every positive word, so negatives must win.
+  assert.ok(extractor.includes('["no-digged", "not-digged"]'), "liked state must resolve negatives first");
+  assert.ok(extractor.includes('["no-collect", "not-collect"]'), "favorited state must resolve negatives first");
+  // The feed renders one switch arrow per slide; existence must be scoped to
+  // the active slide, not the document.
+  assert.ok(extractor.includes("q('[data-e2e=\"video-switch-next-arrow\"]')"), "can_switch_next must be scoped to the active slide");
+  assert.doesNotMatch(extractor, /document\.querySelector\('\[data-e2e="video-switch-next-arrow"\]'\)/, "unscoped arrow lookups match every slide");
 });
 
 
