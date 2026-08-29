@@ -1,13 +1,13 @@
 {
   "name": "no-swipe-marketplace",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "interface": {
     "displayName": "No Swipe Marketplace"
   },
   "plugins": [
     {
       "name": "no-swipe",
-      "version": "0.4.10",
+      "version": "0.4.11",
       "source": {
         "source": "local",
         "path": "./plugins/no-swipe"
