@@ -117,6 +117,10 @@ export function selectAuthorProfileHref(links, author) {
   return candidates[0]?.href || "";
 }
 
+export function normalizeAuthorName(raw) {
+  return String(raw || "").replace(/^@+/, "").replace(/\s+/g, " ").trim();
+}
+
 export function chooseDwellSeconds(raw, classification, random = Math.random, platformConfig = {}) {
   const dwell = platformConfig.dwell_seconds || {};
   const key = raw?.live ? "live_or_ad" : (classification?.high ? "high" : (classification?.relevant ? "medium" : "unrelated"));

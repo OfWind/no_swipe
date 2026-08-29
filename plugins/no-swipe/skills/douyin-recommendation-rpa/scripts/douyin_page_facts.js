@@ -12,6 +12,12 @@
     return Math.round(parseFloat(m[1]) * (m[2] === "万" ? 1e4 : m[2] === "亿" ? 1e8 : 1));
   };
 
+  // Platform stop signals (from config/platforms/douyin.v1.json): any hit
+  // means CAPTCHA/rate-limit/login gates — step will refuse to record.
+  const stopSignals = ["验证码", "人机验证", "安全验证", "访问受限", "操作频繁", "请求过于频繁", "登录后继续", "请先登录", "账号异常", "暂时无法访问", "异常访问"];
+  const bodyText = (document.body && document.body.innerText || "").slice(0, 8000);
+  const stopTextHit = stopSignals.find((signal) => bodyText.includes(signal)) || null;
+
   const active = document.querySelector('[data-e2e="feed-active-video"]');
   if (!active) {
     // Waterfall/discover grid: no active player yet. Click a video card
@@ -21,6 +27,7 @@
       surface: "no_active_video",
       url: location.href,
       card_count: document.querySelectorAll("[data-aweme-id]").length,
+      stop_text_hit: stopTextHit,
     };
   }
 
@@ -51,7 +58,22 @@
     comment_count: count(text(q('[data-e2e="feed-comment-icon"]'))),
     favorite_count: count(text(q('[data-e2e="video-player-collect"]'))),
     share_count: count(text(q('[data-e2e="video-player-share"]'))),
+    follow_visible: Boolean(q('[data-e2e="feed-follow-icon"]')),
+    // Post-action verification: same data-e2e-state markers the retired
+    // runner used. null means the marker is unreadable, not "false".
+    action_state: (() => {
+      const stateOf = (sel, pattern) => {
+        const el = q(sel);
+        if (!el) return null;
+        return pattern.test(`${el.getAttribute("data-e2e-state") || ""} ${String(el.className || "")}`);
+      };
+      return {
+        liked: stateOf('[data-e2e="video-player-digg"]', /is-digged|digged|liked|active|selected/i),
+        favorited: stateOf('[data-e2e="video-player-collect"]', /is-favorited|is-collect|favorited|collected|active|selected/i),
+        followed: stateOf('[data-e2e="feed-follow-icon"]', /is-followed|followed|active|selected/i),
+      };
+    })(),
     can_switch_next: Boolean(document.querySelector('[data-e2e="video-switch-next-arrow"]')),
-    has_login_gate: Boolean(document.querySelector('[class*="login-guide"], [id*="login"], [class*="captcha"]')),
+    stop_text_hit: stopTextHit,
   };
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyRecommendation } from "../../skills/douyin-recommendation-rpa/scripts/douyin_rpa_browser_rules.mjs";
+import { classifyRecommendation } from "../src/browser_rules.mjs";
 
 const profile = {
   positive_topics: ["烘焙", "咖啡"],

@@ -1,8 +1,7 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-
 // 配额随机器只负责实验分组与审计，不负责点击页面，也不包含任何
 // 绕过验证码、访问限制或平台安全措施的逻辑。
+// 从 douyin_quota_randomizer.mjs 原样移植进二进制；快照持久化改由
+// SQLite 承担，因此移除了文件读写方法，其余语义逐行保持一致。
 
 export const DEFAULT_QUOTA_CONFIG = Object.freeze({
   version: "2.0.0",
@@ -499,23 +498,9 @@ export class DouyinQuotaPolicy {
     };
   }
 
-  async saveState(filePath) {
-    const resolvedPath = path.resolve(filePath);
-    await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
-    const temporaryPath = `${resolvedPath}.tmp`;
-    await fs.writeFile(temporaryPath, `${JSON.stringify(this.snapshot(), null, 2)}\n`, "utf8");
-    await fs.rename(temporaryPath, resolvedPath);
-    return resolvedPath;
-  }
-
   static fromSnapshot(snapshot) {
     return new DouyinQuotaPolicy({ snapshot });
   }
 }
 
 export const createDouyinQuotaPolicy = (options = {}) => new DouyinQuotaPolicy(options);
-
-export const loadDouyinQuotaPolicy = async (filePath) => {
-  const snapshot = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8"));
-  return DouyinQuotaPolicy.fromSnapshot(snapshot);
-};

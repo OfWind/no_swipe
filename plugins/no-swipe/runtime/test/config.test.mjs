@@ -19,8 +19,6 @@ import {
   validateOnboardingPreset,
   validateRunConfig,
 } from "../src/config.mjs";
-import { selectAuthorProfileHref } from "../../skills/douyin-recommendation-rpa/scripts/douyin_rpa_browser_rules.mjs";
-
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = async (relative) => JSON.parse(await fs.readFile(path.join(ROOT, relative), "utf8"));
 
@@ -291,15 +289,4 @@ test("run config maps to quota buckets without product-profile defaults", async 
   assert.equal(quota.notInterested.rates.apply, 0);
   assert.deepEqual(quota.profileVisit, { authorized: false, rate: 0, maxTotal: 0 });
   assert.equal(quota.runConfigHash, confirmed.config_hash);
-});
-
-test("author profile lookup is not limited to the upper right sidebar", () => {
-  const links = [
-    { href: "/hashtag/camera", text: "#相机", y: 100 },
-    { href: "/user/MS4wLjABAAAAcreator", text: "@摄影师阿北", y: 920 },
-  ];
-  assert.equal(
-    selectAuthorProfileHref(links, "摄影师阿北"),
-    "/user/MS4wLjABAAAAcreator",
-  );
 });

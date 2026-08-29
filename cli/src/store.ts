@@ -87,6 +87,18 @@ export function openDb(dbPath: string): Database {
       sent_at REAL
     );
     CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox(status, next_retry_at, created_at);
+    CREATE TABLE IF NOT EXISTS quota_state (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(session_id),
+      config_hash TEXT NOT NULL,
+      snapshot TEXT NOT NULL,
+      updated_at REAL NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS plans (
+      record_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(session_id),
+      payload TEXT NOT NULL,
+      created_at REAL NOT NULL
+    );
   `);
   return db;
 }

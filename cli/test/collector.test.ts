@@ -1,11 +1,29 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadCloudConfig } from "../src/cloud.ts";
 import { insertObservation, startSession, statusSession } from "../src/collector.ts";
 import { runConfig } from "../src/config_cmd.ts";
 import { runStep } from "../src/step.ts";
+import { confirmRunConfig, createProfileSnapshot } from "../src/config.mjs";
+
+const pluginFixture = (relative: string) => path.join(import.meta.dir, "../../plugins/no-swipe", relative);
+const draftFixture = () => JSON.parse(readFileSync(pluginFixture("tests/fixtures/run-config.draft.example.json"), "utf8"));
+const profileFixture = () => JSON.parse(readFileSync(pluginFixture("tests/fixtures/account-profile.example.json"), "utf8"));
+
+// step only accepts sealed configs; confirmRunConfig recomputes the hashes
+// after the per-test profile and rate tweaks.
+const zeroRates = [
+  { eligible_relevance: ["high"], like_rate: 0, favorite_rate: 0, like_favorite_overlap_rate: 0, comment_rate: 0, completion_rate: 0, block_size: 20 },
+  { eligible_relevance: ["medium"], like_rate: 0, favorite_rate: 0, like_favorite_overlap_rate: 0, comment_rate: 0, completion_rate: 0, block_size: 20 },
+];
+const sealedRunConfig = (profileOverrides: Record<string, unknown> = {}, rules = zeroRates) => {
+  const draft = draftFixture();
+  draft.interest_profile = createProfileSnapshot({ ...profileFixture(), content_rules: undefined, creator_rules: undefined, ...profileOverrides });
+  draft.interaction_policy.rules = rules;
+  return confirmRunConfig(draft, { confirmedBy: "user" });
+};
 
 const profile = {
   selection_mode: "include",
@@ -70,7 +88,7 @@ test("step skips live content without asking for evidence", () => {
   startSession(dbPath, 5, "relevant");
   const result = runStep({
     dbPath,
-    runConfig: { run_id: "run-1", account_ref: "acc", interest_profile: profile },
+    runConfig: sealedRunConfig({ selection_mode: "include", positive_topics: ["相机"], high_priority_topics: ["相机评测"], negative_topics: ["带货"], classification: { high_match_count: 2 } }),
     page: { title: "相机评测", caption: "相机", contentType: "live", duration_seconds: 20 },
   });
   expect(result.status).toBe("committed");
@@ -80,17 +98,17 @@ test("step skips live content without asking for evidence", () => {
 test("exclusion-only profiles treat watchable items as interaction-eligible high", () => {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
   startSession(dbPath, 5, "observed");
-  const excludeOnlyProfile = {
+  const excludeOnly = sealedRunConfig({
     selection_mode: "exclude_only",
     positive_topics: [],
     high_priority_topics: [],
     negative_topics: ["擦边"],
-    content_rules: { minimum_like_count: 1000, below_minimum_behavior: "skip_unless_recent" },
+    content_rules: { minimum_like_count: 1000, below_minimum_behavior: "skip_unless_recent", recent_evidence_sources: ["feed_published_at"], recent_definition: "以推荐流可见发布时间为准" },
     classification: { high_match_count: 2 },
-  };
+  });
   const result = runStep({
     dbPath,
-    runConfig: { run_id: "run-1", account_ref: "acc", interest_profile: excludeOnlyProfile },
+    runConfig: excludeOnly,
     page: { title: "西藏自驾游记", like_count: 31000, duration_seconds: 300 },
   });
   expect(result.status).toBe("committed");
@@ -99,7 +117,7 @@ test("exclusion-only profiles treat watchable items as interaction-eligible high
 
   const excludedResult = runStep({
     dbPath,
-    runConfig: { run_id: "run-1", account_ref: "acc", interest_profile: excludeOnlyProfile },
+    runConfig: excludeOnly,
     page: { title: "擦边视频", like_count: 31000, duration_seconds: 300 },
   });
   expect(excludedResult.classification.high).toBe(false);
@@ -111,14 +129,7 @@ test("step persists when evidence is explicitly null", () => {
   startSession(dbPath, 5, "relevant");
   const result = runStep({
     dbPath,
-    runConfig: {
-      run_id: "run-1",
-      account_ref: "acc",
-      interest_profile: {
-        ...profile,
-        creator_rules: { high_relevance: { follower_count_min: 1000, follower_count_max: 100000, require_stable_recent_likes: true } },
-      },
-    },
+    runConfig: sealedRunConfig({ selection_mode: "include", positive_topics: ["相机"], high_priority_topics: ["相机评测"], negative_topics: ["带货"], classification: { high_match_count: 2 }, creator_rules: { high_relevance: { follower_count_min: 1000, follower_count_max: 100000, require_stable_recent_likes: true, stability_definition: "近10条作品点赞稳定", evidence_source: "recommendation_feed" } } }),
     record_id: "rec-null",
     page: { title: "相机评测", caption: "相机", duration_seconds: 20, like_count: 10 },
     evidence: { creatorFollowerCount: null, creatorRecentLikesStable: null, isRecentlyPublished: null },
@@ -130,14 +141,7 @@ test("step persists when evidence is explicitly null", () => {
 test("step asks for evidence then commits", () => {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
   startSession(dbPath, 5, "relevant");
-  const runConfig = {
-    run_id: "run-1",
-    account_ref: "acc",
-    interest_profile: {
-      ...profile,
-      creator_rules: { high_relevance: { follower_count_min: 1000, follower_count_max: 100000, require_stable_recent_likes: true } },
-    },
-  };
+  const runConfig = sealedRunConfig({ selection_mode: "include", positive_topics: ["相机"], high_priority_topics: ["相机评测"], negative_topics: ["带货"], classification: { high_match_count: 2 }, creator_rules: { high_relevance: { follower_count_min: 1000, follower_count_max: 100000, require_stable_recent_likes: true, stability_definition: "近10条作品点赞稳定", evidence_source: "recommendation_feed" } } });
   const first = runStep({
     dbPath,
     runConfig,
@@ -153,6 +157,43 @@ test("step asks for evidence then commits", () => {
   });
   expect(second.status).toBe("committed");
   expect(second.upload.pending).toBe(1);
+});
+
+test("step plans in-quota interactions, then commits the executed action_results", () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
+  startSession(dbPath, 5, "observed");
+  const runConfig = sealedRunConfig(
+    { selection_mode: "include", positive_topics: ["相机"], high_priority_topics: ["相机评测"], negative_topics: ["带货"], classification: { high_match_count: 2 } },
+    [{ eligible_relevance: ["high"], like_rate: 1, favorite_rate: 0, like_favorite_overlap_rate: 0, comment_rate: 0, completion_rate: 0, block_size: 20 }],
+  );
+  const page = { title: "相机评测", caption: "相机", author: "a", duration_seconds: 20, like_count: 10 };
+  const first = runStep({ dbPath, runConfig, page });
+  expect(first.status).toBe("planned");
+  expect(first.planned_actions.like).toBe(true);
+  expect(first.planned_actions.next).toBe(true);
+  expect(typeof first.dwell_seconds).toBe("number");
+
+  const second = runStep({
+    dbPath,
+    runConfig,
+    record_id: first.record_id,
+    page,
+    action_results: { like: { attempted: true, success: true }, dwell_seconds: first.dwell_seconds },
+  });
+  expect(second.status).toBe("committed");
+  expect(second.upload.pending).toBe(1);
+});
+
+test("step refuses to record when the page reports a stop signal", () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
+  startSession(dbPath, 5, "relevant");
+  const result = runStep({
+    dbPath,
+    runConfig: sealedRunConfig(),
+    page: { title: "相机评测", caption: "相机", stop_text_hit: "验证码" },
+  });
+  expect(result.status).toBe("stop_required");
+  expect(result.reason).toBe("验证码");
 });
 
 test("start CLI defaults to 1000 observed videos", () => {
