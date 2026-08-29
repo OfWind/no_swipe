@@ -270,33 +270,16 @@ test("page-fact extractor ships as an evaluate-ready adapter with stable selecto
     assert.ok(extractor.includes(selector), `extractor must keep selector ${selector}`);
   }
   assert.doesNotMatch(extractor, /\.click\(|\bgoto\(|history\./, "extractor must be read-only");
+  // The Codex evaluate scope is read-only and strips bare globals: only
+  // namespace functions (Number.*, Math.*) are guaranteed to exist there.
+  assert.doesNotMatch(extractor, /[^.\w]parseFloat\b/, "must use Number.parseFloat, not the stripped bare global");
+  assert.doesNotMatch(extractor, /setTimeout|dispatchEvent/, "timers and event dispatch do not work in the read-only scope");
 });
 
-test("page-action adapter ships evaluate-ready with the retired runner's mechanics", async () => {
-  const adapter = await fs.readFile(
-    path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_page_actions.js"),
-    "utf8",
-  );
-  assert.ok(adapter.trimStart().startsWith("(plan) => {"), "must be a single evaluate-ready arrow function taking the plan");
-  for (const selector of [
-    'data-e2e="feed-active-video"',
-    'data-e2e="video-player-digg"',
-    'data-e2e="video-player-collect"',
-    'data-e2e="feed-follow-icon"',
-    'data-e2e="video-switch-next-arrow"',
-  ]) {
-    assert.ok(adapter.includes(selector), `adapter must keep selector ${selector}`);
-  }
-  // Labels and settles from config/platforms/douyin.v1.json via the 0.2.x runner.
-  for (const label of ["不感兴趣", "继续播放", "关注成功"]) {
-    assert.ok(adapter.includes(label), `adapter must keep label ${label}`);
-  }
-  assert.ok(adapter.includes("data-e2e-state"), "adapter must verify post-click state");
-  assert.doesNotMatch(adapter, /\bgoto\(|history\./, "adapter must never navigate");
-});
 
 test("retired Node runner and Python collector are not shipped", async () => {
   await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs")));
+  await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_page_actions.js")));
   await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_rpa_collector.py")));
   await assert.rejects(fs.access(path.join(ROOT, "runtime/src/cli.mjs")));
   await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/collector_client.mjs")));

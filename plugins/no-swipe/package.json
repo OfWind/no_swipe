@@ -8,6 +8,6 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check runtime/src/config.mjs && node --check skills/douyin-recommendation-rpa/scripts/douyin_page_facts.js && node --check skills/douyin-recommendation-rpa/scripts/douyin_page_actions.js"
+    "check": "node --check runtime/src/config.mjs && node --check skills/douyin-recommendation-rpa/scripts/douyin_page_facts.js"
   }
 }

@@ -7,7 +7,7 @@ description: Configure, run, resume, or audit a Douyin recommendation-feed sessi
 
 Use one compact human-in-the-loop decision. Keep schemas, CLI details, and field-by-field forms out of the user-facing conversation.
 
-Resolve `NO_SWIPE_PLUGIN_ROOT` as this plugin's root (the directory that contains `.codex-plugin/` and `config/`; from this skill file it is `../..`). Resolve `NO_SWIPE` as `~/.config/no-swipe/bin/<cli-version>/no-swipe` after the matching bootstrap script succeeds. Never call Python, the old Node CLI, Codex MCP helpers, or the retired MCP upload tools.
+Resolve `NO_SWIPE_PLUGIN_ROOT` as this plugin's root (the directory that contains `.codex-plugin/` and `config/`; from this skill file it is `../..`). Read every shipped file — this skill, the scripts it references, and the presets — from this same root; when the marketplace cache holds several plugin versions, mixing them runs stale guidance against a new binary. Resolve `NO_SWIPE` as `~/.config/no-swipe/bin/<cli-version>/no-swipe`, where `<cli-version>` is the `version` inside `$NO_SWIPE_PLUGIN_ROOT/config/cli-version.json`; read it after bootstrap succeeds and never hardcode a version remembered from an earlier task. Never call Python, the old Node CLI, Codex MCP helpers, or the retired MCP upload tools.
 
 After bootstrap, set these once in the same shell that will run later commands:
 
@@ -131,7 +131,13 @@ Do not ask the user to type `/goal`. If Goal tools are unavailable, do not claim
 
 ## 5. Apply the configured feed rules
 
-Return to the recommendation feed only after confirmation. Follow the versioned profile snapshot:
+Return to the recommendation feed only after confirmation. Start the counting session before the first `step`, reusing the confirmed `run_id` (the default target is 1000 observed items; `--relevant` switches the target to relevant-only):
+
+```bash
+no-swipe start --db <data_dir>/runs/<run-id>/douyin_rpa_session.sqlite --target <目标数> --new
+```
+
+Pass that same `--db` path to every later `step`, `status`, and `finish` call. Follow the versioned profile snapshot:
 
 - Apply a configured short-video rule before topic, like-count, creator-profile, completion, or positive-interaction handling. For the preset, a reliably measured video duration of 60 seconds or less enters the immediate lane: attempt not interested only when the confirmed authorization, quota, cap, and page state all allow it; otherwise swipe immediately. Do not wait, visit the creator homepage, or allocate like, favorite, comment, follow, or completion actions. When duration is missing or unreliable, continue through the ordinary rules rather than inferring a short video.
 - Negative lane or excluded creator type: click not interested only when the classification is reliable.
@@ -140,10 +146,10 @@ Return to the recommendation feed only after confirmation. Follow the versioned 
 - Interaction eligibility: profiles with positive topics reach the high lane through keyword matches; exclusion-only profiles without positive topics (the shipped preset) treat every watchable item as interaction-eligible, and the confirmed rates and caps do the throttling. Do not open a creator homepage for extra evidence.
 - Evidence missing or ambiguous: keep observing; do not infer high relevance or click not interested.
 
-Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. Do not rediscover the page: the entry path and the two adapters below — the fact extractor for reads, the action adapter for planned interactions and the next transition — are the known-good mechanics, so no full-page DOM snapshots, no selector archaeology, and no reading CLI source code during the loop.
+Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. Do not rediscover the page: the entry path, the fact extractor, and the locator choreography below are the known-good mechanics, so no full-page DOM snapshots, no selector archaeology, and no reading CLI source code during the loop.
 
 - Entry path on Douyin PC: `https://www.douyin.com/?recommend=1` lands on a waterfall grid without an active player. Click one video card (an element carrying `data-aweme-id`) once to enter the modal player; from then on `[data-e2e="feed-active-video"]` is the active slide and clicking `[data-e2e="video-switch-next-arrow"]` moves to the next recommendation.
-- Per item, read [scripts/douyin_page_facts.js](scripts/douyin_page_facts.js) once at loop start, then run `tab.playwright.evaluate(<its full text>)` to get the `page` facts (`surface=no_active_video` means you are still on the grid). It returns title, caption, author, `author_href` (from the active slide's avatar anchor), counts already parsed from `万/亿`, duration/position, and `can_switch_next`.
+- Per item, read [scripts/douyin_page_facts.js](scripts/douyin_page_facts.js) once at loop start, then get the `page` facts with `tab.playwright.evaluate("(" + <its full text> + ")()")` — evaluate treats the file as an expression and never calls it, so the wrapping parentheses and trailing `()` are required, and the scope is read-only (`surface=no_active_video` means you are still on the grid). It returns title, caption, author, `author_href` (from the active slide's avatar anchor), counts already parsed from `万/亿`, duration/position, and `can_switch_next`.
 - Call `no-swipe step --db <sqlite> --json-file <payload.json>` with exactly this payload shape—`runConfig` is the whole confirmed run-config JSON, no extra reading required:
 
 ```json
@@ -152,19 +158,23 @@ Drive the Codex built-in browser yourself unless the user explicitly asked for a
 
 `no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`, and its `planned_actions` tells you which in-quota interactions to attempt on this item. When it returns `status=needs_evidence`, stay on the feed, recall `step` with the same `record_id` plus an `evidence` object (`isRecentlyPublished` from the visible publish time, others `null` when unknown), and continue. Do not call collector `record` during the feed loop.
 
-When `step` returns `status=planned`, execute and commit through the action adapter:
+When `step` returns `status=planned`, execute with real locator clicks and verify with the fact extractor — the evaluate scope is read-only, so every state-changing action goes through `tab.playwright.locator(...).click(...)`:
 
-- Read [scripts/douyin_page_actions.js](scripts/douyin_page_actions.js) once at loop start, alongside the fact extractor. Execute the plan with `tab.playwright.evaluate(<its full text>, <the planned_actions object>)`. It resumes a paused player first, then clicks each planned control exactly once — like on `video-player-digg`, favorite on `video-player-collect`, follow through the icon inside `feed-follow-icon` (the red `+` overflows its parent node, so the adapter clicks the inner element and verifies the post-click state), not-interested through the video's right-click `不感兴趣` menu entry — and verifies each against the same `data-e2e-state` markers the fact extractor reports. Lift its returned `like`, `favorite`, `follow`, and `not_interested` objects straight into `action_results`; `attempted: true, success: false` is a recorded failure — do not click that control again.
-- Stay on the item for `dwell_seconds` as a plain wait, not a page action. For `watch_to_end`, re-run the fact extractor until `current_position_seconds` reaches or stops short of `duration_seconds`, and report `completion: {actual, max_position_seconds}` from that final read.
-- Recall `no-swipe step` with the same `record_id` plus `action_results` (carrying `dwell_seconds`, and `completion` when watched to the end); it returns `status=committed`.
-- Advance only after `status=committed`: `tab.playwright.evaluate(<the action adapter's full text>, {"next": true})` clicks `video-switch-next-arrow` once, waits out the slide transition, and reports `transition_ok` with the new `aweme_id`. When `transition_ok` is false, stop — no second click and no navigation; go to the diagnostics paragraph below.
+- Resume first: when the facts read reports `paused: true`, click the overlay once with `tab.playwright.getByText("继续播放", { exact: true }).last().click({ timeoutMs: 10000 })`.
+- like targets `[data-e2e="feed-active-video"] [data-e2e="video-player-digg"]`; favorite targets `… [data-e2e="video-player-collect"]`. When the facts `action_state` already shows the outcome true, do not click — clicking again undoes it — and record `{"attempted": false, "success": true}`.
+- follow targets the inner icon `… [data-e2e="feed-follow-icon"] span[role="img"]`, falling back to the control itself when the inner icon is absent: the red `+` overflows its parent node, so the outer node can have zero layout height while the control is visibly painted.
+- not-interested opens the menu with a right-click on the active video — `tab.playwright.locator('[data-e2e="feed-active-video"] video').click({ button: "right", timeoutMs: 5000 })` — waits ~250ms, then clicks `tab.playwright.getByText("不感兴趣", { exact: true }).last()`.
+- Each planned control is clicked at most once per item. After each click wait ~280ms (320ms for follow) via `tab.playwright.waitForTimeout(...)`, then re-run the fact extractor: the matching `action_state` flag turning true is the verification. A click that leaves the state unchanged is recorded as `{"attempted": true, "success": false}` — never click that control again.
+- Stay on the item for `dwell_seconds` via one `tab.playwright.waitForTimeout(...)` call, not a page action. For `watch_to_end`, re-run the fact extractor until `current_position_seconds` reaches or stops short of `duration_seconds`, and report `completion: {actual, max_position_seconds}` from that final read.
+- Recall `no-swipe step` with the same `record_id` plus `action_results` in exactly this shape — `{"like": {"attempted": true, "success": true}, "favorite": …, "follow": …, "not_interested": …, "dwell_seconds": <n>}` (add `completion` when watched to the end); it returns `status=committed`.
+- Advance only after `status=committed`: click `tab.playwright.locator('[data-e2e="video-switch-next-arrow"]').click({ timeoutMs: 5000 })` once, wait 850ms, and re-run the fact extractor; the new `aweme_id` differing from the previous item's is the transition verification — give it one more 1500ms settle window before declaring failure. When the `aweme_id` still has not changed, stop — no second click and no navigation; go to the diagnostics paragraph below.
 
 Runtime gates remain mandatory:
 
 - validate `status=confirmed` and `config_hash` before feed actions;
 - enforce rates, caps, and permissions together;
 - record planned, attempted, verified, and actual separately;
-- execute each planned control at most once through the action adapter; a failed verification is recorded, never retried;
+- execute each planned control at most once with the pinned locator choreography; a failed verification is recorded, never retried;
 - do not pause the loop for per-item chat confirmation; the sealed confirmation from section 2 is the action-time authorization;
 - never open a creator homepage;
 - stop on account mismatch, CAPTCHA, rate limits, login gates, unreliable DOM, or failed feed transition.

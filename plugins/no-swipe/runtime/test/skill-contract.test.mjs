@@ -120,28 +120,33 @@ test("skill prioritizes the confirmed 60-second immediate lane", async () => {
   assert.match(skill, /Do not wait, visit the creator homepage, or allocate like/);
 });
 
-test("skill pins the action adapter for planned interactions and the next transition", async () => {
+test("skill pins locator-click choreography, the start command, and the evaluate invocation", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
   const factsIndex = skill.indexOf("douyin_page_facts.js");
-  const adapterIndex = skill.indexOf("douyin_page_actions.js");
+  const plannedIndex = skill.indexOf("status=planned");
   const gatesIndex = skill.indexOf("Runtime gates remain mandatory:");
-  assert.ok(factsIndex >= 0 && adapterIndex > factsIndex && adapterIndex < gatesIndex);
+  assert.ok(factsIndex >= 0 && plannedIndex > factsIndex && plannedIndex < gatesIndex);
 
-  assert.match(skill, /resumes a paused player first/);
+  assert.match(skill, /no-swipe start --db <data_dir>\/runs\/<run-id>\/douyin_rpa_session\.sqlite --target <目标数> --new/);
+  assert.match(skill, /"\(" \+ <its full text> \+ "\)\(\)"/);
+  assert.match(skill, /every state-changing action goes through `tab\.playwright\.locator\(\.\.\.\)\.click\(\.\.\.\)`/);
   assert.match(skill, /video-player-digg/);
   assert.match(skill, /video-player-collect/);
   assert.match(skill, /feed-follow-icon/);
+  assert.match(skill, /span\[role="img"\]/);
   assert.match(skill, /不感兴趣/);
-  assert.match(skill, /data-e2e-state/);
-  assert.match(skill, /Lift its returned `like`, `favorite`, `follow`, and `not_interested` objects straight into `action_results`/);
-  assert.match(skill, /do not click that control again/);
-  assert.match(skill, /video-switch-next-arrow/);
-  assert.match(skill, /transition_ok/);
+  assert.match(skill, /继续播放/);
+  assert.match(skill, /button: "right"/);
+  assert.match(skill, /waitForTimeout/);
+  assert.match(skill, /Each planned control is clicked at most once per item/);
+  assert.match(skill, /\{"attempted": true, "success": false\}/);
   assert.match(skill, /Advance only after `status=committed`/);
-  assert.match(skill, /execute each planned control at most once through the action adapter/);
+  assert.match(skill, /no second click and no navigation/);
+  assert.match(skill, /never hardcode a version remembered from an earlier task/);
+  assert.match(skill, /execute each planned control at most once with the pinned locator choreography/);
 });
 
 test("skill allows own-profile identity but never another creator's homepage", async () => {

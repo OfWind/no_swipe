@@ -9,7 +9,9 @@
     const t = String(raw || "").trim().replace(/,/g, "");
     const m = t.match(/^([\d.]+)\s*(万|亿)?$/);
     if (!m) return null;
-    return Math.round(parseFloat(m[1]) * (m[2] === "万" ? 1e4 : m[2] === "亿" ? 1e8 : 1));
+    // The evaluate scope is read-only and strips bare globals; only
+    // Number.* namespace functions are guaranteed to exist there.
+    return Math.round(Number.parseFloat(m[1]) * (m[2] === "万" ? 1e4 : m[2] === "亿" ? 1e8 : 1));
   };
 
   // Platform stop signals (from config/platforms/douyin.v1.json): any hit
