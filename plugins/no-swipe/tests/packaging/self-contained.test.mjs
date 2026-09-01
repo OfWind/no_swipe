@@ -10,27 +10,14 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const REPOSITORY_ROOT = path.resolve(ROOT, "../..");
 
 const SHIPPED_PROMPT_ENTRYPOINTS = [
   ".codex-plugin/plugin.json",
   "skills/douyin-recommendation-rpa/SKILL.md",
   "skills/douyin-recommendation-rpa/agents/openai.yaml",
+  "skills/no-swipe-release-loop/SKILL.md",
+  "skills/no-swipe-release-loop/agents/openai.yaml",
 ];
-
-const CURRENT_IMPLEMENTATION_DOCS = [
-  "README.md",
-  "docs/no-swipe-refactor-plan-v1.md",
-  "docs/no-swipe-refactor-spec-v1.md",
-  "docs/no-swipe-refactor-plan-v2.md",
-  "docs/no-swipe-interaction-flows.md",
-  "plugins/no-swipe/README.md",
-];
-
-const SHIPPED_REFERENCES_DIRECTORY = path.join(
-  ROOT,
-  "skills/douyin-recommendation-rpa/references",
-);
 
 function proseStatements(source) {
   return source
@@ -54,17 +41,6 @@ function findProfileNavigationInstructions(source) {
     && profileTarget.test(statement)
     && !isExplicitlyProhibited(statement)
   ));
-}
-
-async function currentImplementationDocuments() {
-  const references = (await fs.readdir(SHIPPED_REFERENCES_DIRECTORY, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => path.join(SHIPPED_REFERENCES_DIRECTORY, entry.name));
-
-  return [
-    ...CURRENT_IMPLEMENTATION_DOCS.map((file) => path.join(REPOSITORY_ROOT, file)),
-    ...references,
-  ];
 }
 
 function hasCurrentSurfaceIdentityInstruction(source) {
@@ -166,21 +142,10 @@ test("bootstrap keeps the current binary and deletes older version directories",
   }
 });
 
-test("marketplace and plugin versions stay paired for Codex cache activation", async () => {
-  const version = JSON.parse(await fs.readFile(path.join(ROOT, "config/cli-version.json"), "utf8")).version;
-  const plugin = JSON.parse(await fs.readFile(path.join(ROOT, ".codex-plugin/plugin.json"), "utf8"));
-  const marketplace = JSON.parse(await fs.readFile(path.join(ROOT, "../../.agents/plugins/marketplace.json"), "utf8"));
-  assert.equal(plugin.version.split("+", 1)[0], version);
-  assert.equal(marketplace.version, version);
-  assert.equal(marketplace.plugins[0].version, version);
-});
-
 test("product entrypoints do not contain the former test persona or implicit execution flags", async () => {
-  const sources = await Promise.all([
-    ".codex-plugin/plugin.json",
-    "skills/douyin-recommendation-rpa/SKILL.md",
-    "skills/douyin-recommendation-rpa/agents/openai.yaml",
-  ].map((file) => fs.readFile(path.join(ROOT, file), "utf8")));
+  const sources = await Promise.all(SHIPPED_PROMPT_ENTRYPOINTS.map(
+    (file) => fs.readFile(path.join(ROOT, file), "utf8"),
+  ));
   const combined = sources.join("\n");
   const manifestContent = JSON.stringify(JSON.parse(sources[0]));
   assert.doesNotMatch(combined, /executeFollow\s*:\s*true|executeComments\s*:\s*true/);
@@ -201,31 +166,6 @@ test("all shipped prompts resolve identity current-surface-first without creator
       `${file} must resolve the visible Douyin identity from the current page, account menu, or avatar`,
     );
   }
-});
-
-test("current implementation docs do not prescribe author or creator profile navigation", async () => {
-  for (const file of await currentImplementationDocuments()) {
-    const source = await fs.readFile(file, "utf8");
-    const label = path.relative(REPOSITORY_ROOT, file);
-    assert.deepEqual(
-      findProfileNavigationInstructions(source),
-      [],
-      `${label} contains an instruction to navigate to a creator profile`,
-    );
-  }
-});
-
-test("current implementation docs keep profile sampling retired", async () => {
-  const sources = await Promise.all((await currentImplementationDocuments()).map(
-    (file) => fs.readFile(file, "utf8"),
-  ));
-  const combined = sources.join("\n");
-
-  assert.doesNotMatch(combined, /profile sampling 由 runner 单独按作者抽样/i);
-  assert.doesNotMatch(combined, /positive[^\n.]*profile[- ]visit rates? require total caps/i);
-  assert.doesNotMatch(combined, /作者主页证据入口优先点击/);
-  assert.doesNotMatch(combined, /持久化[^\n。]*主页抽样集合/);
-  assert.match(combined, /profile sampling[^\n。]*(?:retired|disabled|已退役|已禁用)/i);
 });
 
 test("shipped preset keeps creator-profile traversal disabled", async () => {
@@ -282,11 +222,30 @@ test("page-fact extractor ships as an evaluate-ready adapter with stable selecto
   // the active slide, not the document.
   assert.ok(extractor.includes("q('[data-e2e=\"video-switch-next-arrow\"]')"), "can_switch_next must be scoped to the active slide");
   assert.doesNotMatch(extractor, /document\.querySelector\('\[data-e2e="video-switch-next-arrow"\]'\)/, "unscoped arrow lookups match every slide");
+  // Recommend-feed slider omits feed-active-video; class video_<id> is the id.
+  assert.ok(extractor.includes("sliderVideo"), "slider / relatedUiAdapter layout must be a player fallback");
+  assert.ok(extractor.includes("relatedUiAdapter"), "relatedUiAdapter must be a player fallback");
+  assert.ok(extractor.includes("visible_card_count"), "waterfall geometry must distinguish 0x0 cards from clickable cards");
+  assert.ok(extractor.includes("playing_video_count"), "must report a visible playing video so agents do not click collapsed cards");
+  assert.ok(extractor.includes("siblingSlides"), "viewport-visible slider siblings may count as can_switch_next");
+  assert.ok(extractor.includes("window.innerWidth"), "slide visibility must be clipped to the viewport width");
+  assert.ok(extractor.includes("window.innerHeight"), "slide visibility must be clipped to the viewport height");
+  assert.ok(extractor.includes('content_type: contentType'), "page facts must report video versus image-text content");
+  assert.ok(extractor.includes("tplv-dy-aweme-images"), "page facts must recognize Douyin gallery resources");
+  assert.ok(extractor.includes("gallery_image_count"), "page facts must report deduplicated gallery image count");
 });
 
 
-test("retired Node runner and Python collector are not shipped", async () => {
-  await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs")));
+test("the live-tab JS runner is shipped while retired action and collector paths stay absent", async () => {
+  const runnerPath = path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs");
+  const runner = await fs.readFile(runnerPath, "utf8");
+  assert.match(runner, /export async function createDouyinRunner/);
+  assert.match(runner, /processOne/);
+  assert.match(runner, /tab\.playwright\.locator/);
+  assert.match(runner, /tab\.cua\.keypress/);
+  assert.match(runner, /tab\.cua\.scroll/);
+  assert.match(runner, /status: "commit_failed"/);
+  assert.doesNotMatch(runner, /\/user\/|creator homepage|author homepage/i);
   await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_page_actions.js")));
   await assert.rejects(fs.access(path.join(ROOT, "skills/douyin-recommendation-rpa/scripts/douyin_rpa_collector.py")));
   await assert.rejects(fs.access(path.join(ROOT, "runtime/src/cli.mjs")));

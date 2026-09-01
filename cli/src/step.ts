@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chooseDwellSeconds, classifyRecommendation, normalizeAuthorName } from "./browser_rules.mjs";
 import { activeSession, insertObservation } from "./collector.ts";
+import { buildAdvancePlan, buildExecutionPlan } from "./feed_actions.ts";
 import { loadQuota, saveQuota } from "./quota.ts";
 import { openDb } from "./store.ts";
 
@@ -88,12 +89,14 @@ export function runStep(input: {
   }
 
   const author = normalizeAuthorName(page.author as string);
+  const contentType = String(page.content_type ?? page.contentType ?? "video").toLowerCase();
   const raw = {
     title: page.title,
     caption: page.caption,
     text: page.text,
     author,
-    live: page.contentType === "live",
+    contentType,
+    live: contentType === "live",
     durationSeconds: page.duration_seconds ?? page.durationSeconds,
     likeCount: page.like_count ?? page.likeCount,
     ...input.evidence,
@@ -108,7 +111,7 @@ export function runStep(input: {
     };
   }
 
-  const forceSkip = page.contentType === "live" || page.contentType === "ad" || classification.directSkip;
+  const forceSkip = contentType === "live" || contentType === "ad" || classification.directSkip;
   const observedRelevant = classification.relevant && !forceSkip;
   const wrapper = loadQuota(db, sessionId, runConfig);
   const repeatHighCreatorCount = wrapper.creatorHighCounts[author] || 0;
@@ -117,7 +120,7 @@ export function runStep(input: {
   const decision = wrapper.policy.decide({
     awemeId: awemeId || recordId,
     relevance: forceSkip ? "none" : relevanceText(classification),
-    contentType: String(page.contentType || "video"),
+    contentType,
     durationSeconds: Number(raw.durationSeconds),
     author,
     repeatHighCreatorCount,
@@ -148,16 +151,20 @@ export function runStep(input: {
   };
 
   const dwellRandom = () => (wrapper.policy as unknown as { rng: { next(): number } }).rng.next();
-  const dwellSeconds = Number(chooseDwellSeconds(
-    { ...raw, live: page.contentType === "live" || page.contentType === "ad" },
-    observedRelevant ? classification : { relevant: false, high: false },
-    dwellRandom,
-  ).toFixed(3));
+  const dwellSeconds = classification.directSkip
+    ? 0
+    : Number(chooseDwellSeconds(
+      { ...raw, live: contentType === "live" || contentType === "ad" },
+      observedRelevant ? classification : { relevant: false, high: false },
+      dwellRandom,
+    ).toFixed(3));
 
   saveQuota(db, sessionId, runConfig, wrapper);
 
   const anyAction = planned.like || planned.favorite || planned.watch_to_end
     || planned.comment || planned.follow || planned.not_interested;
+  const executionPlan = buildExecutionPlan({ planned, page, dwellSeconds });
+  const advancePlan = buildAdvancePlan(page);
   const base = {
     record_id: recordId,
     planned_actions: { ...planned, next: true },
@@ -165,6 +172,8 @@ export function runStep(input: {
     classification,
     relevance: forceSkip ? "none" : relevanceText(classification),
     quota: { interaction_bucket: decision.interactionBucket, reused_assignment: decision.reusedAssignment === true },
+    execution_plan: executionPlan,
+    advance_plan: advancePlan,
   };
 
   if (!anyAction) {
@@ -174,6 +183,7 @@ export function runStep(input: {
       decision,
       observedRelevant,
       dwellSeconds,
+      contentType,
       author,
       planned,
       evidence: input.evidence ?? null,
@@ -184,13 +194,13 @@ export function runStep(input: {
   db.query("INSERT INTO plans(record_id, session_id, payload, created_at) VALUES (?, ?, ?, ?)").run(
     recordId,
     sessionId,
-    JSON.stringify({ page, classification, decision, observedRelevant, dwellSeconds, author, planned, evidence: input.evidence ?? null }),
+    JSON.stringify({ page, classification, decision, observedRelevant, dwellSeconds, contentType, author, planned, evidence: input.evidence ?? null }),
     Date.now() / 1000,
   );
   return {
     status: "planned",
     ...base,
-    hint: "执行 planned_actions 里为 true 的动作并停留 dwell_seconds，然后带同一 record_id 和 action_results 重调 step 落盘。",
+    hint: "按 execution_plan 顺序执行（不要自造选择器），然后带同一 record_id 和 action_results 重调 step 落盘；committed 之后再执行 advance_plan。",
   };
 }
 
@@ -217,6 +227,12 @@ function commitPlanned(
     planned_actions: { ...plan.planned, next: true },
     dwell_seconds: results.dwell_seconds ?? plan.dwellSeconds,
     classification: plan.classification,
+    execution_plan: buildExecutionPlan({
+      planned: plan.planned,
+      page: plan.page,
+      dwellSeconds: Number(results.dwell_seconds ?? plan.dwellSeconds),
+    }),
+    advance_plan: buildAdvancePlan(plan.page),
     ...committed,
   };
 }
@@ -228,7 +244,7 @@ function commitObservation(
   plan: Record<string, any>,
   results: ActionResults,
 ) {
-  const { page, classification, decision, observedRelevant, dwellSeconds, author } = plan;
+  const { page, classification, decision, observedRelevant, dwellSeconds, contentType, author } = plan;
   let action = observedRelevant ? "watch_then_next" : "direct_skip";
   if (observedRelevant && plan.planned?.watch_to_end) action = "watch_to_end_then_next";
   if (!observedRelevant && succeeded(results.not_interested)) action = "not_interested";
@@ -240,6 +256,7 @@ function commitObservation(
     run_id: runConfig.run_id,
     account_ref: runConfig.account_ref,
     config_hash: runConfig.config_hash,
+    content_type: contentType,
     author,
     is_relevant: observedRelevant,
     decision: observedRelevant ? "keep" : "skip",
@@ -260,6 +277,7 @@ function commitObservation(
       completion: results.completion ?? null,
     },
     rpa_feedback: {
+      content_type: contentType,
       classification,
       quota: {
         interaction_bucket: decision.interactionBucket,

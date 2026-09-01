@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
 import { authLogin, authLogout, authStatus, pollPairing } from "./auth.ts";
-import { exportCsv, finishSession, insertObservation, startSession, statusSession } from "./collector.ts";
-import { maybeAutoFlush } from "./autoflush.ts";
+import { exportCsv, finishSession, insertObservation, recordTransition, startSession, statusSession } from "./collector.ts";
 import { runConfig } from "./config_cmd.ts";
 import { DATA_DIR } from "./paths.ts";
+import { flushPendingOutboxes } from "./runs.ts";
 import { runStep } from "./step.ts";
 import { drainOutbox, syncOutbox } from "./sync.ts";
 import { up } from "./up.ts";
@@ -30,7 +30,7 @@ function print(value: unknown) {
 async function main(args: string[]) {
   const [command, sub, ...rest] = args;
   if (!command || command === "--help" || command === "help") {
-    print("no-swipe up|auth|config|start|record|status|finish|export|sync|step");
+    print("no-swipe up|auth|config|start|record|transition|status|finish|export|sync|step");
     return 0;
   }
   if (command === "up") {
@@ -78,14 +78,23 @@ async function main(args: string[]) {
     print(insertObservation(db, readJsonArg(args)));
     return 0;
   }
+  if (command === "transition") {
+    print(recordTransition(db, readJsonArg(args)));
+    return 0;
+  }
   if (command === "status") {
     print(statusSession(db));
     return 0;
   }
   if (command === "finish") {
+    const sync = await drainOutbox(db, { lockWaitMs: 5_000 });
+    const upload = statusSession(db).upload;
+    if (upload.pending > 0 || upload.dead > 0) {
+      print({ ok: false, status: "upload_incomplete", sync, upload });
+      return 4;
+    }
     const finished = finishSession(db);
-    const sync = await drainOutbox(db);
-    print({ ...finished, sync, upload: statusSession(db).upload });
+    print({ ...finished, sync, upload });
     return 0;
   }
   if (command === "export") {
@@ -93,6 +102,10 @@ async function main(args: string[]) {
     return 0;
   }
   if (command === "sync") {
+    if (args.includes("--all")) {
+      print(await flushPendingOutboxes(option(args, "--data-dir") || DATA_DIR, true));
+      return 0;
+    }
     print(await syncOutbox(db, { force: !args.includes("--no-force") }));
     return 0;
   }
@@ -106,16 +119,17 @@ async function main(args: string[]) {
       record_id: payload.record_id,
       action_results: payload.action_results,
     });
-    if (result.status === "committed") {
-      maybeAutoFlush(db, Number((result as { upload?: { pending?: number } }).upload?.pending ?? 0));
-    }
     print(result);
     return 0;
   }
   throw new Error(`unsupported command: ${command} ${sub ?? ""}`);
 }
 
-main(process.argv.slice(2)).catch((error) => {
-  process.stderr.write(`${JSON.stringify({ ok: false, error: error.name || "Error", message: error.message })}\n`);
-  process.exitCode = 1;
-});
+main(process.argv.slice(2))
+  .then((code) => {
+    process.exitCode = code;
+  })
+  .catch((error) => {
+    process.stderr.write(`${JSON.stringify({ ok: false, error: error.name || "Error", message: error.message })}\n`);
+    process.exitCode = 1;
+  });

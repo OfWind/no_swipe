@@ -104,3 +104,19 @@ test("preset short videos at 60 seconds or less enter the immediate not-interest
   assert.equal(longer.directSkip, false);
   assert.equal(longer.level, "high");
 });
+
+test("image-text posts always enter the immediate not-interested-or-skip lane", () => {
+  const result = classifyRecommendation({
+    title: "城市周末相册",
+    contentType: "image_text",
+    durationSeconds: null,
+    likeCount: 5000,
+  }, broadProfile);
+
+  assert.equal(result.contentType, "image_text");
+  assert.equal(result.imagePost, true);
+  assert.equal(result.directSkip, true);
+  assert.equal(result.notInterestedEligible, true);
+  assert.equal(result.needsCreatorProfile, false);
+  assert.equal(result.level, "none");
+});

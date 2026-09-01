@@ -3,9 +3,10 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadCloudConfig } from "../src/cloud.ts";
-import { insertObservation, startSession, statusSession } from "../src/collector.ts";
+import { insertObservation, recordTransition, startSession, statusSession } from "../src/collector.ts";
 import { runConfig } from "../src/config_cmd.ts";
 import { runStep } from "../src/step.ts";
+import { openDb } from "../src/store.ts";
 import { confirmRunConfig, createProfileSnapshot } from "../src/config.mjs";
 
 const pluginFixture = (relative: string) => path.join(import.meta.dir, "../../plugins/no-swipe", relative);
@@ -83,6 +84,77 @@ test("start, record and status use one sqlite file", () => {
   expect(status.progress).toBe(1);
 });
 
+test("an observation stays transition-pending until the runner records the verified result", () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-transition-")), "facts.sqlite");
+  startSession(dbPath, 2, "observed");
+  const recorded = insertObservation(dbPath, {
+    observation_id: "transition-1",
+    aweme_id: "aweme-1",
+    is_relevant: false,
+  });
+  const db = openDb(dbPath);
+  const before = db.query("SELECT scroll_delta, transition_ok FROM observations WHERE observation_id=?")
+    .get(recorded.observation_id) as { scroll_delta: number | null; transition_ok: number | null };
+  const queuedBefore = JSON.parse(String((db.query("SELECT payload FROM outbox WHERE record_id=?")
+    .get(recorded.observation_id) as { payload: string }).payload));
+  expect(before.scroll_delta).toBeNull();
+  expect(before.transition_ok).toBeNull();
+  expect(queuedBefore.scroll_delta).toBeNull();
+  expect(queuedBefore.transition_ok).toBeNull();
+  expect(recorded.upload.transition_pending).toBe(1);
+
+  const updated = recordTransition(dbPath, {
+    record_id: recorded.observation_id,
+    transition_ok: true,
+    scroll_delta: 1,
+    method: "ARROWDOWN_SETTLED",
+    from_aweme_id: "aweme-1",
+    to_aweme_id: "aweme-2",
+    before_url: "https://www.douyin.com/video/aweme-1",
+    after_url: "https://www.douyin.com/video/aweme-2",
+  });
+  expect(updated.status).toBe("transition_recorded");
+
+  const after = db.query("SELECT scroll_delta, transition_ok, rpa_feedback, raw_json FROM observations WHERE observation_id=?")
+    .get(recorded.observation_id) as { scroll_delta: number; transition_ok: number; rpa_feedback: string; raw_json: string };
+  const queuedAfter = JSON.parse(String((db.query("SELECT payload FROM outbox WHERE record_id=?")
+    .get(recorded.observation_id) as { payload: string }).payload));
+  expect(after.scroll_delta).toBe(1);
+  expect(after.transition_ok).toBe(1);
+  expect(JSON.parse(after.rpa_feedback).transition.method).toBe("ARROWDOWN_SETTLED");
+  expect(JSON.parse(after.raw_json).transition_ok).toBe(true);
+  expect(queuedAfter.transition_ok).toBe(true);
+  expect(queuedAfter.rpa_feedback.transition.to_aweme_id).toBe("aweme-2");
+  expect(queuedAfter.raw_browser_observation.transition_ok).toBe(true);
+  expect(updated.upload.transition_pending).toBe(0);
+});
+
+test("transition CLI finalizes the same SQLite and outbox payload used by the runner", async () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-transition-cli-")), "facts.sqlite");
+  startSession(dbPath, 1, "observed");
+  insertObservation(dbPath, { observation_id: "transition-cli-1", aweme_id: "aweme-1", is_relevant: false });
+  const proc = Bun.spawn([process.execPath, "src/main.ts", "transition", "--db", dbPath], {
+    cwd: path.resolve(import.meta.dir, ".."),
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  proc.stdin.write(JSON.stringify({
+    record_id: "transition-cli-1",
+    transition_ok: false,
+    scroll_delta: 0,
+    reason: "feed_transition_unverified",
+    from_aweme_id: "aweme-1",
+    to_aweme_id: "aweme-1",
+  }));
+  proc.stdin.end();
+  expect(await proc.exited).toBe(0);
+  const result = JSON.parse(await new Response(proc.stdout).text());
+  expect(result.status).toBe("transition_recorded");
+  expect(result.transition_ok).toBe(false);
+  expect(result.upload.transition_pending).toBe(0);
+});
+
 test("step skips live content without asking for evidence", () => {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
   startSession(dbPath, 5, "relevant");
@@ -93,6 +165,97 @@ test("step skips live content without asking for evidence", () => {
   });
   expect(result.status).toBe("committed");
   expect(result.classification.relevant).toBe(true);
+});
+
+test("step commits image-text posts as zero-dwell direct skips with persisted content type", () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-image-text-")), "facts.sqlite");
+  startSession(dbPath, 5, "observed");
+  const result = runStep({
+    dbPath,
+    runConfig: sealedRunConfig({
+      selection_mode: "exclude_only",
+      positive_topics: [],
+      high_priority_topics: [],
+      negative_topics: ["擦边"],
+      content_rules: {
+        short_video_max_duration_seconds: 60,
+        short_video_behavior: "not_interested_or_skip",
+        minimum_like_count: 1000,
+        below_minimum_behavior: "skip_unless_recent",
+        recent_evidence_sources: ["feed_published_at"],
+        recent_definition: "以推荐流可见发布时间为准",
+      },
+      classification: { high_match_count: 2 },
+    }),
+    page: {
+      aweme_id: "image-text-1",
+      title: "城市周末相册",
+      content_type: "image_text",
+      gallery_image_count: 8,
+      duration_seconds: null,
+      like_count: 5000,
+    },
+  });
+
+  expect(result.status).toBe("committed");
+  expect(result.classification.imagePost).toBe(true);
+  expect(result.classification.directSkip).toBe(true);
+  expect(result.relevance).toBe("none");
+  expect(result.dwell_seconds).toBe(0);
+  expect(result.planned_actions.not_interested).toBe(false);
+  const row = openDb(dbPath).query(
+    "SELECT content_type, action, dwell_seconds, rpa_feedback FROM observations WHERE observation_id=?",
+  ).get(result.record_id) as { content_type: string; action: string; dwell_seconds: number; rpa_feedback: string };
+  expect(row.content_type).toBe("image_text");
+  expect(row.action).toBe("direct_skip");
+  expect(row.dwell_seconds).toBe(0);
+  expect(JSON.parse(row.rpa_feedback).content_type).toBe("image_text");
+});
+
+test("step plans one immediate not-interested action for an authorized image-text post", () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-image-action-")), "facts.sqlite");
+  startSession(dbPath, 5, "observed");
+  const draft = draftFixture();
+  draft.interest_profile = createProfileSnapshot({
+    ...profileFixture(),
+    selection_mode: "exclude_only",
+    positive_topics: [],
+    high_priority_topics: [],
+    negative_topics: ["擦边"],
+    creator_rules: undefined,
+  });
+  draft.interaction_policy.rules = zeroRates;
+  draft.interaction_policy.not_interested = { rate: 1, max_total: 5, block_size: 20 };
+  draft.authorization.not_interested = true;
+  const runConfig = confirmRunConfig(draft, { confirmedBy: "user" });
+  const page = {
+    aweme_id: "7677131709351070992",
+    title: "城市周末相册",
+    content_type: "image_text",
+    gallery_image_count: 8,
+    duration_seconds: null,
+    like_count: 5000,
+  };
+
+  const planned = runStep({ dbPath, runConfig, page });
+  expect(planned.status).toBe("planned");
+  expect(planned.dwell_seconds).toBe(0);
+  expect(planned.planned_actions.not_interested).toBe(true);
+  expect(planned.execution_plan.some((operation: { id?: string }) => operation.id === "dwell")).toBe(false);
+  expect(planned.execution_plan.find((operation: { id?: string }) => operation.id === "not_interested_menu")?.locator.selector)
+    .toBe(".video_7677131709351070992");
+
+  const committed = runStep({
+    dbPath,
+    runConfig,
+    page,
+    record_id: planned.record_id,
+    action_results: { not_interested: { attempted: true, success: true }, dwell_seconds: 0 },
+  });
+  expect(committed.status).toBe("committed");
+  const row = openDb(dbPath).query("SELECT action FROM observations WHERE observation_id=?")
+    .get(planned.record_id) as { action: string };
+  expect(row.action).toBe("not_interested");
 });
 
 test("exclusion-only profiles treat watchable items as interaction-eligible high", () => {
@@ -172,6 +335,8 @@ test("step plans in-quota interactions, then commits the executed action_results
   expect(first.planned_actions.like).toBe(true);
   expect(first.planned_actions.next).toBe(true);
   expect(typeof first.dwell_seconds).toBe("number");
+  expect(first.execution_plan.some((op: { result_key?: string }) => op.result_key === "like")).toBe(true);
+  expect(first.advance_plan[0].keys).toEqual(["ARROWDOWN"]);
 
   const second = runStep({
     dbPath,
@@ -198,13 +363,57 @@ test("step refuses to record when the page reports a stop signal", () => {
 
 test("start CLI defaults to 1000 observed videos", () => {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
-  const proc = Bun.spawnSync(["bun", "src/main.ts", "start", "--db", dbPath], {
+  const proc = Bun.spawnSync([process.execPath, "src/main.ts", "start", "--db", dbPath], {
     cwd: path.resolve(import.meta.dir, ".."),
   });
   expect(proc.exitCode).toBe(0);
   const started = JSON.parse(new TextDecoder().decode(proc.stdout));
   expect(started.count_mode).toBe("observed");
   expect(started.target).toBe(1000);
+});
+
+test("step CLI commits locally without waiting for one HTTP sync per observation", async () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-step-cli-")), "facts.sqlite");
+  startSession(dbPath, 5, "observed");
+  const payload = {
+    runConfig: sealedRunConfig(),
+    page: { aweme_id: "step-local-1", title: "普通记录", duration_seconds: 120, like_count: 5000 },
+  };
+  const proc = Bun.spawn([process.execPath, "src/main.ts", "step", "--db", dbPath], {
+    cwd: path.resolve(import.meta.dir, ".."),
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  proc.stdin.write(JSON.stringify(payload));
+  proc.stdin.end();
+  expect(await proc.exited).toBe(0);
+  const result = JSON.parse(await new Response(proc.stdout).text());
+  expect(result.status).toBe("committed");
+  expect(result.upload.pending).toBe(1);
+  expect(result.sync).toBeUndefined();
+});
+
+test("finish keeps the session active and exits nonzero while upload is incomplete", async () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-finish-cli-")), "facts.sqlite");
+  const authDir = mkdtempSync(path.join(tmpdir(), "no-swipe-finish-auth-"));
+  startSession(dbPath, 1, "observed");
+  insertObservation(dbPath, { aweme_id: "finish-1", title: "pending", is_relevant: false });
+
+  const proc = Bun.spawn([process.execPath, "src/main.ts", "finish", "--db", dbPath], {
+    cwd: path.resolve(import.meta.dir, ".."),
+    env: { ...process.env, NO_SWIPE_AUTH_DIR: authDir },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const exitCode = await proc.exited;
+  const result = JSON.parse(await new Response(proc.stdout).text());
+
+  expect(exitCode).not.toBe(0);
+  expect(result.status).toBe("upload_incomplete");
+  expect(result.upload.pending).toBe(1);
+  expect(statusSession(dbPath).status).toBe("active");
 });
 
 test("materialize preserves revision from profile-input and rejects a bad --revision", async () => {

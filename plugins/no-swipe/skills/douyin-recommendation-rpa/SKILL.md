@@ -7,7 +7,7 @@ description: Configure, run, resume, or audit a Douyin recommendation-feed sessi
 
 Use one compact human-in-the-loop decision. Keep schemas, CLI details, and field-by-field forms out of the user-facing conversation.
 
-Resolve `NO_SWIPE_PLUGIN_ROOT` as this plugin's root (the directory that contains `.codex-plugin/` and `config/`; from this skill file it is `../..`). Read every shipped file — this skill, the scripts it references, and the presets — from this same root; when the marketplace cache holds several plugin versions, mixing them runs stale guidance against a new binary. Resolve `NO_SWIPE` as `~/.config/no-swipe/bin/<cli-version>/no-swipe`, where `<cli-version>` is the `version` inside `$NO_SWIPE_PLUGIN_ROOT/config/cli-version.json`; read it after bootstrap succeeds and never hardcode a version remembered from an earlier task. Never call Python, the old Node CLI, Codex MCP helpers, or the retired MCP upload tools.
+Resolve `NO_SWIPE_PLUGIN_ROOT` as this plugin's root (the directory that contains `.codex-plugin/` and `config/`; from this skill file it is `../..`). Read every shipped file — this skill, the scripts it references, and the presets — from this same root; when the marketplace cache holds several plugin versions, mixing them runs stale guidance against a new binary. For an ordinary installed release, resolve `NO_SWIPE` as `~/.config/no-swipe/bin/<cli-version>/no-swipe`, where `<cli-version>` is the `version` inside `$NO_SWIPE_PLUGIN_ROOT/config/cli-version.json`; read it after bootstrap succeeds and never hardcode a version remembered from an earlier task. When this Skill is invoked by `no-swipe-release-loop` for a candidate whose CLI changed, use the candidate-specific binary and test data directory recorded by that cycle instead; never overwrite or invoke the formal pinned binary for candidate evidence. Never call Python, the old Node CLI, Codex MCP helpers, or the retired MCP upload tools.
 
 After bootstrap, set these once in the same shell that will run later commands:
 
@@ -29,6 +29,7 @@ Douyin and the workbench live in two dedicated tabs that coexist. Opening one su
 This authorization gate is mandatory for every new or resumed run. Stop before all Douyin, collector, Goal, and upload actions unless startup reports `auth.connected=true`.
 
 1. Run the host bootstrap script from the plugin root: `scripts/bootstrap.sh` on macOS, `scripts/bootstrap.ps1` on Windows. It is the only update step (downloads this machine's binary when the pinned version is missing and prunes older versions), and it chains `no-swipe up` before exiting. Its final JSON line carries everything startup needs: `auth.connected`, `next`, the machine-level `data_dir` (substitute it for `<data_dir>` in later commands), locally bound `accounts`, and `workbench_url`. After a successful bootstrap, do not run separate `auth status` or `config profile list` calls. Linux is not a release target.
+   During a release-loop candidate test with changed CLI bytes, do not run bootstrap: run the exact candidate binary as `"$NO_SWIPE" up --data-dir <candidate-test-data-dir>`, require the same `auth.connected=true` gate, and keep every draft, account binding, run database, outbox, and export inside that candidate test directory. This candidate-only branch must not prune or replace the formal binary or scan formal run databases.
 2. When `next=resolve_account`, continue straight to account resolution and reuse the returned `accounts` list.
 3. When `next=auth_login`, run `no-swipe auth login`. It prints `pair_url` (`https://whislte.cc.cd/pair?code=…`). Open that exact URL with the Codex built-in browser in its own tab. Do not only paste the link into chat. The pair page auto-approves the moment the user is signed in: a browser with a live workbench session authorizes with zero clicks, and a first-time user only completes email OTP once before auto-approval fires. Do not ask the user whether they clicked anything; the 同意授权 button is only a fallback when auto-approval reports an error. `status=approved` already persists credentials; keep that signed-in workbench tab open, and continue to account resolution in a separate Douyin tab.
 4. Accept any email that can receive and verify the No Swipe OTP. Never ask for or handle the user's OpenAI API key, device token, OTP, or email password.
@@ -39,13 +40,13 @@ Keep plugin and binary updates inside bootstrap. Talk to the user only about the
 
 Identity comes from the logged-in account's own canonical profile URL, never from feed content: the active feed card's author avatar is not an identity source, and another creator's homepage must never be opened because leaving the feed for a creator profile can bias later recommendations toward that person.
 
-1. The first browser action of every new or resumed session is opening `https://www.douyin.com/user/self` in the Douyin tab. This fixed self-referential URL always shows the logged-in account; it is not a guessed creator URL and never construct `/user/<id>` for anyone else.
-2. Read the visible nickname and Douyin ID (`抖音号：…`) from the current page. A login gate or verification page here means the account is not usable: show the browser to the user, ask them to log in, and do not proceed.
+1. The first browser action of a **new** session, or of a resume whose Douyin tab is new/stale, is opening `https://www.douyin.com/user/self` in the Douyin tab. This fixed self-referential URL always shows the logged-in account; it is not a guessed creator URL and never construct `/user/<id>` for anyone else. If this same browser binding already showed the matching `抖音号：…` on the current Douyin surface earlier in the task, do not navigate to `/user/self` again — extra profile/feed round-trips are a common 429 trigger.
+2. Read the visible nickname and Douyin ID (`抖音号：…`) from the current page. A login gate or verification page here means the account is not usable: show the browser to the user, ask them to log in, and do not proceed. Do not treat the substring `登录` inside `保存登录信息` as a login gate. Only `douyin_page_facts.js` `stop_text_hit`, or the exact phrases `登录后继续` / `请先登录`, count.
 3. Build `account_ref` from the visible Douyin ID and resolve only that account under the machine-level data dir (the `data_dir` in the startup output; account bindings, runs, and drafts all live there and survive across Codex task workspaces). A resolved ID that differs from a previously bound `account_ref` means the Douyin account was switched: select or create its sibling account directory, never update the old account's profile. When the startup output reports `legacy_workspace_data`, an older workspace-local copy exists: pass `--data-dir <that path>` to keep using it, or simply re-confirm once and the account re-binds under the machine-level dir.
 4. Record the nickname for audit: `no-swipe config profile identity <account-ref> --nickname <可见昵称>`.
 5. Identity is now settled; go straight to the compact confirmation below. Navigate to the recommendation feed (`https://www.douyin.com/?recommend=1`) only after the run is confirmed.
 
-Treat Douyin as a SPA. Perform at most one browser action per call, click each intended control at most once, and never use `expectNavigation` on Douyin. Verify the resulting URL or visible state in a separate bounded call that returns only compact fields. Never issue a second click from a timeout/error catch or otherwise retry blindly. If a click or read times out, stop feed actions, reuse the same browser binding and current tab, and run the bounded same-surface diagnostics below.
+Treat Douyin as a SPA. Outside the feed runner, perform at most one browser action per call and verify the resulting URL or visible state in a separate bounded call. Inside the feed, one bounded `runner.processOne()` call owns the complete current-item state machine; it may execute several independently authorized controls, but clicks each planned control at most once and verifies it before continuing. On both paths, never use `expectNavigation` on Douyin or issue a second click from a timeout/error catch. If a click or read times out, stop feed actions, reuse the same browser binding and current tab, and run the bounded same-surface diagnostics below.
 
 Stop before feed actions when identity is unreliable, the resolved account differs from the visible account, or a verification/access-limit page appears.
 
@@ -140,44 +141,66 @@ no-swipe start --db <data_dir>/runs/<run-id>/douyin_rpa_session.sqlite --target 
 Pass that same `--db` path to every later `step`, `status`, and `finish` call. Follow the versioned profile snapshot:
 
 - Apply a configured short-video rule before topic, like-count, creator-profile, completion, or positive-interaction handling. For the preset, a reliably measured video duration of 60 seconds or less enters the immediate lane: attempt not interested only when the confirmed authorization, quota, cap, and page state all allow it; otherwise swipe immediately. Do not wait, visit the creator homepage, or allocate like, favorite, comment, follow, or completion actions. When duration is missing or unreliable, continue through the ordinary rules rather than inferring a short video.
+- A reliably identified image-text/gallery post enters the same zero-dwell immediate lane before topic, like-count, creator-profile, completion, or positive-interaction handling. Attempt not interested once only when the confirmed authorization, quota, cap, and current image-post menu target all allow it; otherwise swipe immediately. Never invent a video duration for image content.
 - Negative lane or excluded creator type: click not interested only when the classification is reliable.
 - Other lanes: treat as watchable without requiring a positive keyword hit.
 - Visible likes below the configured threshold: swipe directly unless the visible feed timestamp confirms the video is newly published. Do not open a creator homepage to inspect the work list.
 - Interaction eligibility: profiles with positive topics reach the high lane through keyword matches; exclusion-only profiles without positive topics (the shipped preset) treat every watchable item as interaction-eligible, and the confirmed rates and caps do the throttling. Do not open a creator homepage for extra evidence.
 - Evidence missing or ambiguous: keep observing; do not infer high relevance or click not interested.
 
-Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. Do not rediscover the page: the entry path, the fact extractor, and the locator choreography below are the known-good mechanics, so no full-page DOM snapshots, no selector archaeology, and no reading CLI source code during the loop.
+Drive the Codex built-in browser yourself unless the user explicitly asked for another browser. Do not rediscover the page: `up.feed.entry_plan` and the shipped JS runner are the known-good mechanics, so no full-page DOM snapshots, no selector archaeology, and no reading CLI source code during the loop.
 
-- Entry path on Douyin PC: `https://www.douyin.com/?recommend=1` lands on a waterfall grid without an active player. Click one video card (an element carrying `data-aweme-id`) once to enter the modal player; from then on `[data-e2e="feed-active-video"]` is the active slide and one `ARROWDOWN` keypress moves to the next recommendation. When the player does not mount after the card click and `tab.dev.logs` shows React hydration errors (#418/#422 — observed to persist across fresh navigations), recover one rung at a time, verifying with the fact extractor after each: first navigate directly to a visible card's standalone player `https://www.douyin.com/video/<data-aweme-id>`; if that also fails, re-enter once with a cache-busting query `https://www.douyin.com/?recommend=1&v=<epoch-seconds>` and click one visible card once. If neither mounts the player, stop and report the page blocked.
-- Per item, read [scripts/douyin_page_facts.js](scripts/douyin_page_facts.js) once at loop start, then get the `page` facts with `tab.playwright.evaluate("(" + <its full text> + ")()")` — evaluate treats the file as an expression and never calls it, so the wrapping parentheses and trailing `()` are required, and the scope is read-only (`surface=no_active_video` means you are still on the grid). It returns title, caption, author, `author_href` (from the active slide's avatar anchor), counts already parsed from `万/亿`, duration/position, and `can_switch_next`.
-- Call `no-swipe step --db <sqlite> --json-file <payload.json>` with exactly this payload shape—`runConfig` is the whole confirmed run-config JSON, no extra reading required:
+The Codex `evaluate` scope is read-only. The runner reads facts through the shipped `douyin_page_facts.js`, then performs every state-changing action with the live tab's `tab.playwright.locator(...).click(...)` or `tab.cua.keypress`. It never places clicks, timers, or event dispatch inside `evaluate`.
 
-```json
-{"runConfig": <run-config.confirmed.json 全文>, "page": <douyin_page_facts.js 的返回值>}
+- Follow `up.feed.entry_plan`. After `?recommend=1`, call `runner.readCurrent()` **before** any card click. `surface=active_video` is the stable historical surface name for an active feed slider and may contain either a visible video or `content_type=image_text`; `.sliderVideo` / `.video_<aweme_id>` can therefore be active without a `<video>`. The extractor selects the largest viewport-intersecting video inside that slide rather than the first mounted `<video>`. The runner passively rereads `media_state=loading` / `content_type=unknown` for a bounded 2.5-second readiness window before planning. If `processOne()` still returns `media_loading`, no observation or transition was committed; reuse the same runner and read later instead of classifying the card or advancing blindly. Skip the card click and call `runner.processOne()`. `surface=no_active_video` with `playing_video_count>0` or `visible_card_count=0` means waterfall cards collapsed to 0×0 because the player mounted; wait 1200ms and read once more, and do **not** click `[data-aweme-id] >> visible=true`. Click a card only when `visible_card_ids` is non-empty, using `[data-aweme-id="<that id>"]` once.
+- Console `React #418/#422` and a `429` **log line** are not safety stops. Stop only when `stop_text_hit` is set (on-page 验证码 / 请求过于频繁 / 登录后继续). If the extractor already returns `active_video`, continue; do not enter the recovery ladder.
+- Recover one rung at a time only when `surface` is still `no_active_video` **and** `playing_video_count` is 0 after that wait: first `https://www.douyin.com/video/<visible id>`; if that also fails, re-enter once with `https://www.douyin.com/?recommend=1&v=<epoch-seconds>` and click one **visible** card once. If neither mounts the player, stop and report the page blocked.
+- `can_switch_next=false` is **not** a collection gate. `runner.processOne()` sends ARROWDOWN once, then passively verifies `aweme_id` over a bounded multi-stage settle window. If the ID remains unchanged and viewport facts are reliable, it performs one physical CUA wheel scroll at viewport center and runs the same bounded verification. It never uses the layout-specific next-arrow. If both initial stages remain unchanged, the committed observation stays `transition_ok=null` and the runner returns `transition_pending` instead of writing a false failure. Call the same runner's `processOne()` once more: it first accepts a delayed ID change without a new control; if the ID is still unchanged, it retries only the last transition control once and verifies again. It never replans the item or creates another observation.
+
+After obtaining the live Douyin `tab`, import the runner from this exact plugin root and keep one runner instance for the session. `runConfig` is the parsed whole confirmed file, `dbPath` is the exact path passed to `start`, and `noSwipePath` is the bootstrapped `$NO_SWIPE` path:
+
+```js
+const { createDouyinRunner } = await import(
+  "<NO_SWIPE_PLUGIN_ROOT>/skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs"
+);
+const runner = await createDouyinRunner({
+  tab,
+  runConfig,
+  dbPath,
+  noSwipePath,
+  syncEvery: 10,
+});
 ```
 
-`no-swipe step` commits each observation to SQLite and its durable outbox before returning `status=committed`, and its `planned_actions` tells you which in-quota interactions to attempt on this item. When it returns `status=needs_evidence`, stay on the feed, recall `step` with the same `record_id` plus an `evidence` object (`isRecentlyPublished` from the visible publish time, others `null` when unknown), and continue. Do not call collector `record` during the feed loop.
+Do not recreate the runner between items while the browser binding, tab, RunConfig, and database are unchanged. The runner reads [scripts/douyin_page_facts.js](scripts/douyin_page_facts.js) once, invokes `no-swipe step` internally, executes the returned `execution_plan`, verifies every attempted action, commits its `action_results`, and advances only after `status=committed`. Do not call collector `record` or replay `step` yourself during the feed loop.
 
-When `step` returns `status=planned`, execute with real locator clicks and verify with the fact extractor — the evaluate scope is read-only, so every state-changing action goes through `tab.playwright.locator(...).click(...)`:
+Call `await runner.processOne()` once per item. One call owns this complete order:
 
-- Resume first: when the facts read reports `paused: true`, click the overlay once with `tab.playwright.getByText("继续播放", { exact: true }).last().click({ timeoutMs: 10000 })`.
-- Dwell before clicking: hold `dwell_seconds` first via `tab.playwright.waitForTimeout(...)` — clicks in the first seconds after a slide mounts are silently swallowed (real-run failures all landed at 3–4s, successes at ≥6s), so like, favorite, and follow clicks happen only after at least 5 seconds on the slide; when `dwell_seconds` is shorter, wait the remainder before clicking. For `watch_to_end`, re-run the fact extractor until `current_position_seconds` reaches or stops short of `duration_seconds`, and report `completion: {actual, max_position_seconds}` from that final read.
-- like targets `[data-e2e="feed-active-video"] [data-e2e="video-player-digg"]`; favorite targets `… [data-e2e="video-player-collect"]`. When the facts `action_state` already shows the outcome true, do not click — clicking again undoes it — and record `{"attempted": false, "success": true}`.
-- follow targets the inner icon `… [data-e2e="feed-follow-icon"] span[role="img"]`, falling back to the control itself when the inner icon is absent: the red `+` overflows its parent node, so the outer node can have zero layout height while the control is visibly painted.
-- not-interested opens the menu with a right-click on the active video — `tab.playwright.locator('[data-e2e="feed-active-video"] video').click({ button: "right", timeoutMs: 5000 })` — waits ~250ms, then clicks `tab.playwright.getByText("不感兴趣", { exact: true }).last()`.
-- Each planned control is clicked at most once per item. After each click wait ~280ms (320ms for follow) via `tab.playwright.waitForTimeout(...)`, then re-run the fact extractor: the matching `action_state` flag turning true is the verification. A click that leaves the state unchanged is recorded as `{"attempted": true, "success": false}` — never click that control again.
-- Recall `no-swipe step` with the same `record_id` plus `action_results` in exactly this shape — `{"like": {"attempted": true, "success": true}, "favorite": …, "follow": …, "not_interested": …, "dwell_seconds": <n>}` (add `completion` when watched to the end); it returns `status=committed`.
-- Advance only after `status=committed`: send one `tab.cua.keypress({ keys: ["ARROWDOWN"] })` — the retired runner's transition primitive, immune to the multiple per-slide arrows and to the player's inactive-controls state — then wait 850ms and re-run the fact extractor; the new `aweme_id` differing from the previous item's is the transition verification, with one more 1500ms settle window before declaring failure. As a one-time fallback on a different control, click `tab.playwright.locator('[data-e2e="feed-active-video"] [data-e2e="video-switch-next-arrow"]').click({ timeoutMs: 5000 })` once and verify the same way; when the `aweme_id` still has not changed, stop — no further clicks and no navigation; go to the diagnostics paragraph below.
+```text
+read facts → plan → dwell/actions → verify → commit transition-pending SQLite/outbox → bounded transition controls/verification → finalize transition audit
+```
+
+- `status=advanced`: the observation is durable and the next `aweme_id` is verified; continue with the same runner.
+- `status=media_loading`: the active slide has an ID but its video/gallery media is still mounting after the readiness window. Nothing was committed; reuse the same runner and reread later. Do not persist `unknown` as though it were a final content classification.
+- `status=transition_pending`: the observation is durable with `transition_ok=null`, so it is intentionally ineligible for upload. When `retryable=true`, call the same runner's `processOne()` once to reconcile a delayed transition or perform the single recovery retry; the retry call never replans the item. When `retryable=false`, keep the row and page for diagnostics and issue no further blind controls.
+- `status=no_active_video`: run only the bounded entry/recovery rule above; do not invent selectors.
+- `status=action_failed`, `browser_error`, or `transition_failed`: stop feed actions and run same-surface diagnostics. A failed interaction control is committed as attempted/unsuccessful, never clicked again, and never followed by a blind transition. An unchanged feed ID follows the `transition_pending` recovery path; a missing next-arrow is normal and is not a locator error.
+- `status=transition_audit_failed`: stop immediately. The observation remains local with `transition_ok=null` and is not eligible for upload until the runner records the verified transition result.
+- `status=cli_error` or `status=commit_failed`: stop without advancing; preserve the current page and SQLite.
+- `status=stop_required`: stop immediately for the reported on-page safety signal.
+- When the returned `sync` is non-null and its status is not `ok`, `idle`, or `deferred`, pause at that checkpoint and report the visible status; the outbox remains the recovery source.
+
+Use `runner.processBatch({ maxItems: 1 })` only when a caller needs the structured batch envelope. Keep `maxItems: 1` for ordinary Codex turns so one slow watch-to-end item cannot exceed the browser execution budget.
 
 Runtime gates remain mandatory:
 
 - validate `status=confirmed` and `config_hash` before feed actions;
 - enforce rates, caps, and permissions together;
 - record planned, attempted, verified, and actual separately;
-- execute each planned control at most once with the pinned locator choreography; a failed verification is recorded, never retried;
+- execute each planned interaction control at most once inside `runner.processOne()`; feed transition recovery is the sole exception and may retry the last transition control once on the next call while the same runner owns the pending record;
 - do not pause the loop for per-item chat confirmation; the sealed confirmation from section 2 is the action-time authorization;
 - never open a creator homepage;
-- stop on account mismatch, CAPTCHA, rate limits, login gates, unreliable DOM, or failed feed transition.
+- stop on account mismatch, CAPTCHA, on-page rate-limit copy (`stop_text_hit`), login gates, or unreliable DOM. An unchanged `aweme_id` after the initial ARROWDOWN and CUA stages becomes `transition_pending`; reconcile it once with the same runner before diagnosing it as unresolved. Do not stop because `can_switch_next` is false, because console logs mention 429, or because React hydration errors appear while `surface=active_video`.
 
 On a timed-out click or page read, `browser unavailable`, stale/detached tab,
 unreliable card, or failed transition, stop feed actions and keep the same
@@ -191,12 +214,16 @@ Chrome comparison is optional and never proves that the Codex in-app Browser rec
 
 Persist each observation with `run_id`, `account_ref`, `config_hash`, profile revision/hash, and feed sequence before moving on. Resume only when the saved state's config hash matches.
 
-Every observation must first be committed to SQLite and its durable outbox; the
-browser loop must not wait for a remote request before moving to the next
-feed item. Do not write CSV or Excel during collection. When the user asks
+Every observation must first be committed to SQLite and its durable outbox with
+`scroll_delta=null` and `transition_ok=null`. After the one permitted transition
+action, the runner records success or failure through `no-swipe transition`,
+updating the observation and its outbox payload in one local transaction. Rows
+whose transition audit is still null are never eligible for upload. The browser
+loop must not wait for a remote request before moving to the next feed item.
+Do not write CSV or Excel during collection. When the user asks
 to inspect or deliver data, export from SQLite with `no-swipe export`.
 
-Uploads are automatic and never an agent decision: `step` flushes the outbox in the background as it commits, `finish` drains it before returning, and the next session's startup (`up`) flushes any leftovers from an interrupted run. Do not schedule `no-swipe sync` yourself; it exists only as a manual retry when `finish` reports remaining `pending` (for example offline).
+Uploads are automatic and never an agent scheduling decision: the runner performs a bounded synchronous checkpoint every 10 committed observations, `finish` drains before returning, and the next session's startup (`up`) drains leftovers from every sqlite under `data_dir/runs/` (not only `runs/current`). The browser hot path never starts a detached fire-and-forget uploader and never performs one HTTP request per observation. Use `runner.syncCheckpoint({ force: true })` at a deliberate pause or handoff. `no-swipe sync --all --data-dir <data_dir>` remains the explicit recovery command for all run databases.
 
 When the target is reached, run `no-swipe finish --db <sqlite>` once: it closes the active session and uploads everything pending. Before completing the Goal, its output must show `upload.pending=0`, and review every `dead` record explicitly.
 

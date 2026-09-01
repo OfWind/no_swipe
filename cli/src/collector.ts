@@ -119,6 +119,7 @@ export function insertObservation(dbPath: string, data: Record<string, unknown>)
     aweme_id: data.aweme_id ?? "",
     hashtags: JSON.stringify(data.hashtags ?? []),
     matched_keywords: JSON.stringify(data.matched_keywords ?? []),
+    content_type: data.content_type ?? data.contentType ?? "",
     duration_seconds: data.duration_seconds ?? null,
     current_position_seconds: data.current_position_seconds ?? null,
     like_count: data.like_count ?? null,
@@ -127,8 +128,8 @@ export function insertObservation(dbPath: string, data: Record<string, unknown>)
     favorite_count: data.favorite_count ?? null,
     before_url: data.before_url ?? "",
     after_url: data.after_url ?? "",
-    scroll_delta: data.scroll_delta ?? 1,
-    transition_ok: data.transition_ok == null ? 1 : Number(Boolean(data.transition_ok)),
+    scroll_delta: data.scroll_delta ?? null,
+    transition_ok: data.transition_ok == null ? null : Number(Boolean(data.transition_ok)),
     rpa_feedback: JSON.stringify(data.rpa_feedback ?? {}),
     raw_json: JSON.stringify(data),
     created_at: nowIso(),
@@ -155,6 +156,78 @@ export function insertObservation(dbPath: string, data: Record<string, unknown>)
     count_mode: session.count_mode,
     progress,
     completed: progress >= Number(session.target_count),
+    upload: queueCounts(db),
+  };
+}
+
+export function recordTransition(dbPath: string, data: Record<string, unknown>) {
+  const db = openDb(dbPath);
+  const recordId = String(data.record_id || data.observation_id || "").trim();
+  if (!recordId) throw new Error("record_id is required");
+  if (typeof data.transition_ok !== "boolean") throw new Error("transition_ok must be boolean");
+
+  const update = db.transaction(() => {
+    const row = db.query("SELECT * FROM observations WHERE observation_id=?").get(recordId) as Record<string, unknown> | null;
+    if (!row) throw new Error(`observation not found: ${recordId}`);
+    const queued = db.query("SELECT status FROM outbox WHERE record_id=?").get(recordId) as { status?: string } | null;
+    if (!queued) throw new Error(`outbox record not found: ${recordId}`);
+    if (queued.status === "sent") throw new Error(`transition result arrived after upload: ${recordId}`);
+
+    const transitionOk = data.transition_ok;
+    const scrollDelta = Number(data.scroll_delta ?? (transitionOk ? 1 : 0));
+    const beforeUrl = String(data.before_url ?? row.before_url ?? "");
+    const afterUrl = String(data.after_url ?? row.after_url ?? "");
+    const transition = {
+      ok: transitionOk,
+      method: data.method == null ? null : String(data.method),
+      reason: data.reason == null ? null : String(data.reason),
+      from_aweme_id: String(data.from_aweme_id ?? row.aweme_id ?? ""),
+      to_aweme_id: String(data.to_aweme_id ?? ""),
+    };
+    const feedback = jsonValue(row.rpa_feedback, {}) as Record<string, unknown>;
+    const raw = jsonValue(row.raw_json, {}) as Record<string, unknown>;
+    const nextFeedback = { ...feedback, transition };
+    const nextRaw = {
+      ...raw,
+      before_url: beforeUrl,
+      after_url: afterUrl,
+      scroll_delta: scrollDelta,
+      transition_ok: transitionOk,
+      rpa_feedback: nextFeedback,
+      transition,
+    };
+
+    db.query(`
+      UPDATE observations
+      SET before_url=?, after_url=?, scroll_delta=?, transition_ok=?, rpa_feedback=?, raw_json=?
+      WHERE observation_id=?
+    `).run(
+      beforeUrl,
+      afterUrl,
+      scrollDelta,
+      Number(transitionOk),
+      JSON.stringify(nextFeedback),
+      JSON.stringify(nextRaw),
+      recordId,
+    );
+    const updated = db.query("SELECT * FROM observations WHERE observation_id=?").get(recordId) as Record<string, unknown>;
+    const payload = JSON.stringify(recordPayload(updated));
+    db.query(`
+      UPDATE outbox
+      SET payload=?,
+          status=CASE WHEN status='failed' THEN 'pending' ELSE status END,
+          next_retry_at=CASE WHEN status='failed' THEN 0 ELSE next_retry_at END,
+          last_error=CASE WHEN status='failed' THEN NULL ELSE last_error END
+      WHERE record_id=?
+    `).run(payload, recordId);
+  });
+  update();
+  return {
+    ok: true,
+    status: "transition_recorded",
+    record_id: recordId,
+    transition_ok: data.transition_ok,
+    scroll_delta: Number(data.scroll_delta ?? (data.transition_ok ? 1 : 0)),
     upload: queueCounts(db),
   };
 }

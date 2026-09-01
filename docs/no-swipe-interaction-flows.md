@@ -370,27 +370,33 @@ sequenceDiagram
 
 ## 9. 推荐流单条循环
 
-浏览器由 Agent 驱动。CLI 的 `step` 只做分类 + 落库，不点页面。配额脚本决定互动计划；`plannedActions.follow` 在候选创作者上为 true。
+浏览器由内置 Browser 提供 live `tab`，随插件发布的 JS runner 在同一次有界调用里驱动单条状态机。CLI 的 `step` 只负责分类、配额计划与落库，不点页面。配额脚本决定互动计划；`plannedActions.follow` 在候选创作者上为 true。
 
 ```mermaid
 flowchart TD
-  Start[回到推荐流下一条] --> Gate{页状态可靠?}
+  Start[runner 读取当前推荐视频] --> Gate{页状态可靠?}
   Gate -->|验证码 / 限流 / 登录墙 / DOM 不可靠| Stop[停止，跑浏览器诊断]
-  Gate -->|直播或广告| Skip[直接划走]
-  Gate -->|普通视频| Classify["no-swipe step --json-file 页面事实"]
+  Gate -->|可靠| Classify[runner 调用 no-swipe step 生成计划]
 
   Classify --> Need{status}
   Need -->|needs_evidence| Missing[留在推荐流<br/>缺失字段设为 null]
   Missing --> Classify2["同一 record_id 再 step"]
-  Classify2 --> Commit
+  Classify2 --> Planned
+  Need -->|planned| Planned[按 execution_plan 等待、互动、验证]
   Need -->|committed| Commit[SQLite observations + outbox 同一事务]
-
-  Commit --> Quota[配额模块 plannedActions]
-  Quota --> Act[按计划执行点赞/收藏/关注/不感兴趣/划走]
-  Act --> PersistNote[互动结果可再写入 Goal 状态<br/>不在循环里再问用户]
-  PersistNote --> Count{达到 target?}
+  Planned --> Result[同一 record_id + action_results 再 step]
+  Result --> Commit
+  Commit --> Advance[ARROWDOWN 一次]
+  Advance --> VerifyArrow{约 8 秒分阶段验证<br/>新 aweme_id?}
+  VerifyArrow -->|已变化| Audit[transition 命令更新 SQLite + outbox]
+  VerifyArrow -->|未变化且 viewport 可靠| Wheel[CUA 物理滚轮一次]
+  VerifyArrow -->|无可靠后备| Audit
+  Wheel --> VerifyWheel{分阶段验证<br/>新 aweme_id?}
+  VerifyWheel --> Audit
+  Audit -->|失败| Stop
+  Audit -->|成功| Count{达到 target?}
   Count -->|否| Start
-  Count -->|是| SyncB[生命周期边界 sync]
+  Count -->|是| Finish[finish 排空 outbox 后结束]
 ```
 
 `step` 在证据不足时返回 `needs_evidence`。Agent 只采用当前推荐卡片已经可见的事实；缺失的粉丝数、近期作品稳定性或「是否新发」一律填 `null`，使用同一 `record_id` 再提交。不得猜测，也不得进入作者主页补证据。
@@ -403,31 +409,44 @@ flowchart TD
 
 ## 10. 本地持久化
 
-热路径的事实源是 SQLite，不是 CSV。默认库路径：工作目录 `.no-swipe/runs/current/douyin_rpa_session.sqlite`。
+热路径的事实源是 SQLite，不是 CSV。库路径是机器级 `data_dir/runs/<run-id>/douyin_rpa_session.sqlite`（`no-swipe up` 输出的 `data_dir`），不是只认 `runs/current`。
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant Agent as Agent
+  participant Runner as JS runner
+  participant Br as Browser live tab
   participant Step as no-swipe step
   participant DB as SQLite
+  participant Ing as ingest
 
-  Agent->>Step: page + runConfig + 可选 evidence
+  Agent->>Runner: processOne()
+  Runner->>Br: read-only facts
+  Runner->>Step: page + runConfig + 可选 evidence
   Step->>Step: classifyRecommendation
   alt 当前推荐卡片缺少判定证据
-    Step-->>Agent: needs_evidence + record_id
-    Agent->>Step: 同一 record_id + 缺失证据字段为 null
+    Step-->>Runner: needs_evidence + record_id
+    Runner->>Step: 同一 record_id + 缺失证据字段为 null
   else 当前证据足够
-    Note over Agent,Step: 无需补交
+    Note over Runner,Step: 无需补交
   end
-  Step->>DB: BEGIN
-  Step->>DB: INSERT observations
-  Step->>DB: INSERT outbox status=pending
-  Step->>DB: COMMIT
-  Step-->>Agent: committed + progress
+  alt 返回 planned
+    Step-->>Runner: execution_plan + advance_plan
+    Runner->>Br: locator/CUA 执行一次并验证
+    Runner->>Step: 同一 record_id + action_results
+  end
+  Step->>DB: BEGIN + observation/outbox<br/>transition_ok=null + COMMIT
+  Step-->>Runner: committed + progress + upload
+  Runner->>Br: ARROWDOWN 一次 + 分阶段验证<br/>仍未变化时 CUA 物理滚轮一次 + 验证
+  Runner->>DB: transition 成功或失败<br/>同事务更新 observation + outbox
+  opt 每 10 条已提交记录
+    Runner->>Ing: 同步 checkpoint
+  end
+  Runner-->>Agent: advanced / 明确停止状态
 ```
 
-刷流循环**不等**远程 ingest。下一条可以立刻划。CSV / Excel 只在用户要看交付物时 `no-swipe export`。
+`step` 只做本地事务，不等待远端请求。JS runner 执行 `execution_plan`、验证结果、以 `transition_ok=null` 提交，再执行一次 ARROWDOWN 并在约 8 秒内分阶段验证；仍未变化且 viewport 事实可靠时，执行一次已经过外置 Chrome 实测的 CUA 物理滚轮并再次分阶段验证。最后通过 `transition` 命令把成功或失败原子更新到 SQLite 和 outbox。每种转场控制最多一次，固定箭头不再使用。转场审计仍为空的记录不进入上传批次。runner 每 10 条做一次同步 checkpoint；失败时 SQLite outbox 保留完整恢复源。CSV / Excel 只在用户要看交付物时 `no-swipe export`。
 
 Outbox 状态：
 
@@ -441,7 +460,7 @@ stateDiagram-v2
   pending --> dead: 单条过大等永久失败
 ```
 
-`sync` 在暂停、页面异常、交接、结束时调用。Goal 完成前要求 `local.pending=0`；每条 `dead` 必须先人工看过。
+`up` 启动时 drain 该 `data_dir/runs/` 下每一个 sqlite 的 pending；`finish` 结束前等待当前同步锁并再次 drain。只要仍有 `pending` 或 `dead`，`finish` 就返回 `upload_incomplete`、保持 session active 并以非零状态退出。Goal 完成前要求 `upload.pending=0`；每条 `dead` 必须先人工看过。`sync` 只作离线后的手工重试（`sync --all` 扫全部 run 库）。
 
 ---
 
@@ -450,16 +469,14 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
   autonumber
-  participant Agent as Agent
-  participant Sync as no-swipe sync
+  participant Sync as runner checkpoint / up / finish
   participant Cred as credentials.json
   participant Ing as ingest
   participant PG as Postgres
 
-  Agent->>Sync: sync --db <sqlite>
   Sync->>Cred: 读 nsd_ token
   alt 没有 token
-    Sync-->>Agent: login_required，outbox 不动
+    Sync-->>Sync: login_required，outbox 不动
   else 有 token
     Sync->>Ing: Authorization: Bearer nsd_…<br/>apikey: publishable key<br/>records[]
     alt 401 device_token_revoked / invalid
@@ -492,8 +509,7 @@ sequenceDiagram
   participant API as Worker /api 或 Edge
   participant PG as Postgres
 
-  Agent->>CLI: sync（pending 必须到 0）
-  Agent->>CLI: finish（关闭 active session）
+  Agent->>CLI: finish（先 drain；pending/dead 为 0 后关闭 active session）
   Agent->>Br: 打开 auth status / credentials 里的 workbench_url
   Br->>WB: 达人列表
   WB->>API: 用户 JWT
@@ -646,3 +662,4 @@ Agent **不要**做的事：向用户要 OpenAI Key、设备 token、OTP、邮�
 | 2026-08-29 | 0.4.4 | 账号绑定/运行/草稿迁到机器级 ~/.config/no-swipe/data，跨任务工作目录持久；up 报告 data_dir 与旧工作区数据 |
 | 2026-08-29 | 0.4.5 | 认号改为直开 /user/self 一次完成；预设删除不可得的粉丝量高相关规则（此前互动配额从未触发），纯排除画像可看即可互动；确认话术精简为「回复 1 开始」 |
 | 2026-08-29 | 0.4.6 | 上传全自动：step 后台水位派生 sync（单飞锁）、finish 内嵌排空、up 启动补传遗留 pending；agent 不再决策上传时机 |
+| 2026-09-01 | 0.4.12 候选 | 恢复有界 JS feed runner：单条完成读取、计划、执行、验证、本地提交和切换；上传改为每 10 条 checkpoint，finish 未排空时保持 active 并返回失败 |

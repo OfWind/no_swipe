@@ -134,6 +134,7 @@ if (current === version && !flags.has("--reuse-version")) {
 if (current !== version) bumpVersions(version);
 if (!flags.has("--skip-tests")) {
   run(["bun", "test"], path.join(ROOT, "cli"));
+  run(["node", "--test", "scripts/repository-contract.test.mjs"], ROOT);
   run(["node", "--test"], path.join(ROOT, "plugins/no-swipe"));
 }
 if (!flags.has("--skip-build")) run(["bun", "scripts/build.ts"], path.join(ROOT, "cli"));

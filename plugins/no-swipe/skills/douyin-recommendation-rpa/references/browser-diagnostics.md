@@ -54,7 +54,8 @@ this read-only ladder.
 | Adapter selectors return quickly with no visible candidate | `douyin_dom_adapter_mismatch` | Capture compact selector evidence and update the adapter/runner with a regression fixture. |
 | Adapter probe itself times out | `page_or_runtime_evaluate_timeout` | Compare a smaller JavaScript probe and inspect page main-thread/runtime health. |
 | Probes 1-6 pass but `getActiveCard()` fails | `no_swipe_runner_failure` | Minimize the projection that fails and add a runner regression test before changing code. |
-| Card reads succeed but the ID does not change after a permitted transition | `feed_transition_unverified` | Stop; preserve the last card and focus evidence. Do not blind-retry. |
+| Card reads succeed but the ID does not change after the initial ARROWDOWN and CUA verification stages | `transition_pending` | Keep `transition_ok=null`; call the same runner once more. It first accepts a delayed change, otherwise retries only the last transition control once without replanning. |
+| The same pending record remains unchanged after its single recovery retry | `feed_transition_unverified` | Preserve the last card and focus evidence. Do not issue further blind controls. A missing next-arrow is normal on this layout and is not a locator failure. |
 
 CAPTCHA, access restriction, account mismatch, login gates, or rate limits remain
 safety stops rather than browser bugs.

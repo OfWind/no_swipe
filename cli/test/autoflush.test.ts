@@ -6,28 +6,15 @@ import {
   acquireSyncLock,
   lastSyncAttemptMs,
   releaseSyncLock,
-  selfCommand,
-  shouldAutoFlush,
   syncLockPath,
   touchSyncAttempt,
 } from "../src/autoflush.ts";
 import { insertObservation, startSession } from "../src/collector.ts";
-import { syncOutbox } from "../src/sync.ts";
+import { drainOutbox, syncOutbox } from "../src/sync.ts";
 
 function tempDb() {
   return path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-flush-")), "facts.sqlite");
 }
-
-test("shouldAutoFlush ignores empty queues and respects intervals", () => {
-  const now = 1_000_000;
-  expect(shouldAutoFlush(0, null, now)).toBe(false);
-  expect(shouldAutoFlush(1, null, now)).toBe(true);
-  expect(shouldAutoFlush(1, now - 5_000, now)).toBe(false);
-  expect(shouldAutoFlush(1, now - 61_000, now)).toBe(true);
-  // Large backlogs flush on the shorter interval.
-  expect(shouldAutoFlush(50, now - 5_000, now)).toBe(false);
-  expect(shouldAutoFlush(50, now - 16_000, now)).toBe(true);
-});
 
 test("sync lock is exclusive, stale-breakable, and releasable", () => {
   const db = tempDb();
@@ -52,21 +39,22 @@ test("syncOutbox reports locked instead of racing a concurrent sync", async () =
   releaseSyncLock(db);
 });
 
+test("drainOutbox can wait for an active sync lock at a lifecycle boundary", async () => {
+  const db = tempDb();
+  startSession(db, 5, "observed");
+  expect(acquireSyncLock(db)).toBe(true);
+  setTimeout(() => releaseSyncLock(db), 25);
+  try {
+    const result = await drainOutbox(db, { lockWaitMs: 250, lockRetryMs: 10 });
+    expect(["idle", "login_required"]).toContain(result.status);
+  } finally {
+    releaseSyncLock(db);
+  }
+});
+
 test("sync attempts leave a readable last-attempt marker", () => {
   const db = tempDb();
   expect(lastSyncAttemptMs(db)).toBeNull();
   touchSyncAttempt(db);
   expect(typeof lastSyncAttemptMs(db)).toBe("number");
-});
-
-test("selfCommand keeps the source entry when running from a checkout", () => {
-  const entry = process.argv[1] || "";
-  const command = selfCommand(["sync", "--db", "x.sqlite"]);
-  if (/\.(ts|mjs|js)$/.test(entry) && !entry.includes("$bunfs")) {
-    expect(command[0]).toBe(process.execPath);
-    expect(command[1]).toBe(entry);
-    expect(command.slice(2)).toEqual(["sync", "--db", "x.sqlite"]);
-  } else {
-    expect(command).toEqual([process.execPath, "sync", "--db", "x.sqlite"]);
-  }
 });

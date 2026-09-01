@@ -57,6 +57,26 @@ test("up lists bound accounts slim with their recorded nickname", async () => {
   expect(account.content_rules).toBeUndefined();
 });
 
+test("up reports pending outbox across every run sqlite, not only runs/current", async () => {
+  const { insertObservation, startSession } = await import("../src/collector.ts");
+  const dataDir = mkdtempSync(path.join(tmpdir(), "no-swipe-up-outbox-"));
+  const first = path.join(dataDir, "runs", "run-a", "douyin_rpa_session.sqlite");
+  const second = path.join(dataDir, "runs", "run-b", "facts.sqlite");
+  startSession(first, 5, "observed");
+  startSession(second, 5, "observed");
+  insertObservation(first, { title: "a", is_relevant: false });
+  insertObservation(second, { title: "b", is_relevant: false });
+  insertObservation(second, { title: "c", is_relevant: false });
+
+  const result = await up(dataDir);
+  expect(result.outbox.pending).toBe(3);
+  expect(result.outbox.databases).toBe(2);
+  expect(result.outbox.flushed).toBe(false);
+  expect(result.outboxes).toHaveLength(2);
+  expect(result.feed.entry_plan.length).toBeGreaterThan(0);
+  expect(result.feed.facts).toContain("douyin_page_facts.js");
+});
+
 test("up skips identity-only account directories instead of failing startup", async () => {
   const { runConfig } = await import("../src/config_cmd.ts");
   const dataDir = mkdtempSync(path.join(tmpdir(), "no-swipe-up-identity-"));

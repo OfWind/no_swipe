@@ -31,10 +31,18 @@ export async function syncOutbox(dbPath: string, options: { force?: boolean; bat
 }
 
 // Repeatedly upload batches until the outbox is drained or blocked.
-export async function drainOutbox(dbPath: string, { maxBatches = 50 } = {}) {
+export async function drainOutbox(
+  dbPath: string,
+  { maxBatches = 50, lockWaitMs = 0, lockRetryMs = 100 } = {},
+) {
   let last: Record<string, unknown> = { status: "idle" };
+  const lockDeadline = Date.now() + Math.max(0, lockWaitMs);
   for (let i = 0; i < maxBatches; i += 1) {
     last = await syncOutbox(dbPath, { force: true });
+    while (last.status === "locked" && Date.now() < lockDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, Math.max(10, lockRetryMs)));
+      last = await syncOutbox(dbPath, { force: true });
+    }
     if (last.status !== "ok") break;
     if (Number(last.pending ?? 0) <= 0) break;
   }
@@ -50,7 +58,9 @@ async function syncOneBatch(dbPath: string, { force = true, batchSize = 100 } = 
   const due = db.query(`
     SELECT session_id, COUNT(*) AS due_count, MIN(created_at) AS oldest
     FROM outbox
-    WHERE status IN ('pending','failed') AND next_retry_at<=?
+    WHERE status IN ('pending','failed')
+      AND next_retry_at<=?
+      AND json_extract(payload, '$.transition_ok') IS NOT NULL
     GROUP BY session_id
     ORDER BY oldest
   `).all(now) as Array<{ session_id: string; due_count: number; oldest: number }>;
@@ -60,7 +70,10 @@ async function syncOneBatch(dbPath: string, { force = true, batchSize = 100 } = 
 
   let rows = db.query(`
     SELECT * FROM outbox
-    WHERE session_id=? AND status IN ('pending','failed') AND next_retry_at<=?
+    WHERE session_id=?
+      AND status IN ('pending','failed')
+      AND next_retry_at<=?
+      AND json_extract(payload, '$.transition_ok') IS NOT NULL
     ORDER BY created_at LIMIT ?
   `).all(selected.session_id, now, batchSize) as Array<Record<string, unknown>>;
   const session = db.query("SELECT * FROM sessions WHERE session_id=?").get(selected.session_id) as Record<string, unknown> | null;

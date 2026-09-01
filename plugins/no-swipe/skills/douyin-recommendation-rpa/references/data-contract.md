@@ -31,6 +31,7 @@ No Swipe 认证用户与抖音账号是 1:n。服务端用认证后的用户 ID 
   "author_href": "推荐流中可见的链接",
   "aweme_id": "视频ID",
   "hashtags": ["主题A", "主题B"],
+  "content_type": "video",
   "duration_seconds": 46.0,
   "current_position_seconds": 7.4,
   "like_count": 10000,
@@ -39,7 +40,7 @@ No Swipe 认证用户与抖音账号是 1:n。服务端用认证后的用户 ID 
   "favorite_count": 560,
   "before_url": "https://www.douyin.com/?recommend=1",
   "after_url": "https://www.douyin.com/?recommend=1",
-  "scroll_delta": 740,
+  "scroll_delta": 1,
   "transition_ok": true,
   "user_liked": false,
   "user_favorited": false,
@@ -80,6 +81,8 @@ No Swipe 认证用户与抖音账号是 1:n。服务端用认证后的用户 ID 
 `contract_version` 固定为 `2`。`record_id` 由客户端生成，并与当前用户和会话共同构成服务端幂等键。上传不校验时间戳时区或格式；时区转换和展示在数据库到前端完成。客户端默认仍发送 UTC `Z`。
 
 `quota_decision.plannedActions` 只表示实验计划。点赞、收藏、评论、关注、不感兴趣和完播的实际结果必须在页面操作或播放器状态得到可靠反馈后，写入对应事实字段或 `user_action_result`。候选不等于已执行；没有对应授权时不得尝试。
+
+`content_type` 使用 `video`、`image_text`、`live`、`ad` 或 `unknown`。`unknown` 只表示当前读取尚无可验证媒体，不是最终内容分类；活跃 slide 在网络加载期间同时返回 `media_state=loading`，Runner 先执行有界被动复读，仍未就绪时返回 `media_loading` 且不创建观察。活跃 slide 内存在多个视频节点时，以 viewport 相交面积最大的节点为视频事实来源，不能让较早挂载的隐藏占位节点覆盖可见视频。图文/图片卡片只有在当前活跃 slide 内发现平台图集资源时才写为 `image_text`；此时 `duration_seconds` 与 `current_position_seconds` 保持空值，不得伪造视频时长。图文进入零停留立即处理通道：已授权且配额分配成功时尝试一次不感兴趣，否则直接转场。
 
 ## Excel 中文字段顺序
 
@@ -136,7 +139,7 @@ No Swipe 认证用户与抖音账号是 1:n。服务端用认证后的用户 ID 
 
 ## 上传语义
 
-SQLite 是本地事实源；Runner 在每条 `processOne` 内把观察与对应 outbox 项在同一事务提交。本地完整观察即上传内容，不另做脱敏投影。CSV 和 Excel 只在用户要求查看或交付时从 SQLite 导出，不进入采集热路径。刷流循环不调用 collector `record`，也不根据 `mcp_upload` 做批次判断。payload 递归出现 `cookie`、`authorization`、`access_token`、`refresh_token`、`password`、`secret` 等凭据字段时，服务端拒绝该记录。
+SQLite 是本地事实源；Runner 在每条 `processOne` 内先把观察与对应 outbox 项以 `scroll_delta=null`、`transition_ok=null` 同事务提交，页面转场得到验证结论后，再用 `no-swipe transition` 同事务更新观察与 outbox payload。一次控制后 ID 未变化不会立刻写 `transition_ok=false`：Runner 保持 transition-pending，先在下一次同实例调用中接受延迟变化；仍未变化时仅重试最后一种转场控制一次。转场审计仍为空的 outbox 项不会进入上传批次。`media_loading` 不创建观察。本地完整观察即上传内容，不另做脱敏投影。CSV 和 Excel 只在用户要求查看或交付时从 SQLite 导出，不进入采集热路径。刷流循环不调用 collector `record`，也不根据 `mcp_upload` 做批次判断。payload 递归出现 `cookie`、`authorization`、`access_token`、`refresh_token`、`password`、`secret` 等凭据字段时，服务端拒绝该记录。
 
 上传请求最多包含 100 条：
 

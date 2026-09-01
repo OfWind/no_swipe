@@ -92,7 +92,7 @@ test("skill keeps collector record out of the feed loop", async () => {
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
-  assert.match(skill, /`no-swipe step` commits each observation to SQLite and its durable outbox/);
+  assert.match(skill, /runner.*invokes `no-swipe step` internally/i);
   assert.match(skill, /Do not call collector `record`/);
   assert.match(skill, /no-swipe sync/);
   assert.match(skill, /no-swipe finish/);
@@ -118,42 +118,42 @@ test("skill prioritizes the confirmed 60-second immediate lane", async () => {
   assert.match(skill, /60 seconds or less enters the immediate lane/);
   assert.match(skill, /otherwise swipe immediately/);
   assert.match(skill, /Do not wait, visit the creator homepage, or allocate like/);
+  assert.match(skill, /image-text\/gallery post enters the same zero-dwell immediate lane/i);
+  assert.match(skill, /Never invent a video duration for image content/i);
 });
 
-test("skill pins locator-click choreography, the start command, and the evaluate invocation", async () => {
+test("skill restores the live-tab JS runner as the only per-item browser state machine", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
   const factsIndex = skill.indexOf("douyin_page_facts.js");
-  const plannedIndex = skill.indexOf("status=planned");
+  const runnerIndex = skill.indexOf("createDouyinRunner");
   const gatesIndex = skill.indexOf("Runtime gates remain mandatory:");
-  assert.ok(factsIndex >= 0 && plannedIndex > factsIndex && plannedIndex < gatesIndex);
+  assert.ok(factsIndex >= 0 && runnerIndex > factsIndex && runnerIndex < gatesIndex);
 
   assert.match(skill, /no-swipe start --db <data_dir>\/runs\/<run-id>\/douyin_rpa_session\.sqlite --target <目标数> --new/);
-  assert.match(skill, /"\(" \+ <its full text> \+ "\)\(\)"/);
-  assert.match(skill, /every state-changing action goes through `tab\.playwright\.locator\(\.\.\.\)\.click\(\.\.\.\)`/);
-  assert.match(skill, /video-player-digg/);
-  assert.match(skill, /video-player-collect/);
-  assert.match(skill, /feed-follow-icon/);
-  assert.match(skill, /span\[role="img"\]/);
-  assert.match(skill, /不感兴趣/);
-  assert.match(skill, /继续播放/);
-  assert.match(skill, /button: "right"/);
-  assert.match(skill, /waitForTimeout/);
-  assert.match(skill, /Each planned control is clicked at most once per item/);
-  assert.match(skill, /\{"attempted": true, "success": false\}/);
-  assert.match(skill, /Dwell before clicking/);
-  assert.match(skill, /at least 5 seconds on the slide/);
-  assert.match(skill, /tab\.cua\.keypress\(\{ keys: \["ARROWDOWN"\] \}\)/);
-  assert.match(skill, /one-time fallback on a different control/);
-  assert.match(skill, /Advance only after `status=committed`/);
-  assert.match(skill, /no further clicks and no navigation/);
-  assert.match(skill, /https:\/\/www\.douyin\.com\/video\/<data-aweme-id>/);
-  assert.match(skill, /cache-busting query/);
+  assert.match(skill, /douyin_browser_runner\.mjs/);
+  assert.match(skill, /const runner = await createDouyinRunner/);
+  assert.match(skill, /await runner\.processOne\(\)/);
+  assert.match(skill, /read facts → plan → dwell\/actions → verify → commit transition-pending SQLite\/outbox → bounded transition controls\/verification → finalize transition audit/);
+  assert.match(skill, /physical CUA wheel scroll at viewport center/);
+  assert.match(skill, /up\.feed\.entry_plan/);
+  assert.match(skill, /Do not rediscover the page/);
+  assert.match(skill, /advances only after `status=committed`/);
+  assert.match(skill, /status=commit_failed/);
+  assert.match(skill, /status=transition_audit_failed/);
+  assert.match(skill, /syncEvery: 10/);
+  assert.match(skill, /https:\/\/www\.douyin\.com\/video\/<visible id>/);
+  assert.match(skill, /\?recommend=1&v=<epoch-seconds>/);
   assert.match(skill, /#418\/#422/);
   assert.match(skill, /never hardcode a version remembered from an earlier task/);
-  assert.match(skill, /execute each planned control at most once with the pinned locator choreography/);
+  assert.match(skill, /execute each planned interaction control at most once inside `runner\.processOne\(\)`/);
+  assert.match(skill, /status=media_loading/);
+  assert.match(skill, /status=transition_pending/);
+  assert.match(skill, /retries only the last transition control once/);
+  assert.doesNotMatch(skill, /video-player-digg/);
+  assert.doesNotMatch(skill, /tab\.cua\.keypress\(\{ keys: \["ARROWDOWN"\] \}\)/);
 });
 
 test("skill allows own-profile identity but never another creator's homepage", async () => {
@@ -167,7 +167,7 @@ test("skill allows own-profile identity but never another creator's homepage", a
   assert.match(skill, /never construct `\/user\/<id>` for anyone else/);
   assert.match(skill, /no-swipe config profile identity/);
   assert.match(skill, /means the Douyin account was switched/);
-  assert.match(skill, /recall `step` with the same `record_id` plus an `evidence` object/);
+  assert.match(skill, /runner reads .*douyin_page_facts\.js.*invokes `no-swipe step` internally/i);
   assert.match(skill, /douyin_page_facts\.js/);
   assert.match(skill, /no full-page DOM snapshots, no selector archaeology, and no reading CLI source code/);
   assert.doesNotMatch(skill, /open the author homepage|open that video's creator homepage|Stay on the homepage/);
@@ -184,9 +184,9 @@ test("skill keeps Douyin browser actions SPA-safe, bounded, and on one controlle
   assert.match(skill, /never use `expectNavigation` on Douyin/);
   assert.match(
     skill,
-    /Verify the resulting URL or visible state in a separate bounded call that returns only compact fields/,
+    /verify the resulting URL or visible state in a separate bounded call/,
   );
-  assert.match(skill, /Never issue a second click from a timeout\/error catch or otherwise retry blindly/);
+  assert.match(skill, /never use `expectNavigation` on Douyin or issue a second click from a timeout\/error catch/);
   assert.match(skill, /reuse the same browser binding and current tab/);
 
   const expectNavigationStatements = skill

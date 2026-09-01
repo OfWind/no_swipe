@@ -1,6 +1,6 @@
 {
   "name": "no-swipe-plugin",
-  "version": "0.4.11",
+  "version": "0.4.12",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,6 +8,6 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check runtime/src/config.mjs && node --check skills/douyin-recommendation-rpa/scripts/douyin_page_facts.js"
+    "check": "node --check runtime/src/config.mjs && node --check skills/douyin-recommendation-rpa/scripts/douyin_page_facts.js && node --check skills/douyin-recommendation-rpa/scripts/douyin_browser_runner.mjs && node --check skills/no-swipe-release-loop/scripts/verify_candidate.mjs"
   }
 }

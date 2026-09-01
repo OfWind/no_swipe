@@ -8,7 +8,7 @@ export const CSV_FIELDS = [
   "profile_check_attempted", "profile_tag_hit", "profile_visible_labels", "profile_check_url", "profile_return_ok",
   "user_comment_text", "user_action_reason", "user_action_result", "dwell_seconds", "interest_score",
   "title", "caption", "author", "author_href", "aweme_id", "hashtags", "matched_keywords",
-  "duration_seconds", "current_position_seconds", "like_count", "comment_count", "share_count", "favorite_count",
+  "content_type", "duration_seconds", "current_position_seconds", "like_count", "comment_count", "share_count", "favorite_count",
   "before_url", "after_url", "scroll_delta", "transition_ok", "rpa_feedback", "raw_json",
 ] as const;
 
@@ -60,6 +60,7 @@ export function openDb(dbPath: string): Database {
       aweme_id TEXT,
       hashtags TEXT,
       matched_keywords TEXT,
+      content_type TEXT,
       duration_seconds REAL,
       current_position_seconds REAL,
       like_count REAL,
@@ -100,6 +101,12 @@ export function openDb(dbPath: string): Database {
       created_at REAL NOT NULL
     );
   `);
+  const observationColumns = new Set(
+    (db.query("PRAGMA table_info(observations)").all() as Array<{ name: string }>).map((column) => column.name),
+  );
+  if (!observationColumns.has("content_type")) {
+    db.exec("ALTER TABLE observations ADD COLUMN content_type TEXT");
+  }
   return db;
 }
 
@@ -107,11 +114,17 @@ export function queueCounts(db: Database) {
   const row = db.query(`
     SELECT
       COALESCE(SUM(CASE WHEN status IN ('pending','failed') THEN 1 ELSE 0 END), 0) AS pending,
+      COALESCE(SUM(CASE WHEN status IN ('pending','failed') AND json_extract(payload, '$.transition_ok') IS NULL THEN 1 ELSE 0 END), 0) AS transition_pending,
       COALESCE(SUM(CASE WHEN status='dead' THEN 1 ELSE 0 END), 0) AS dead,
       COALESCE(SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END), 0) AS sent
     FROM outbox
-  `).get() as { pending: number; dead: number; sent: number };
-  return { pending: Number(row.pending), dead: Number(row.dead), sent: Number(row.sent) };
+  `).get() as { pending: number; transition_pending: number; dead: number; sent: number };
+  return {
+    pending: Number(row.pending),
+    transition_pending: Number(row.transition_pending),
+    dead: Number(row.dead),
+    sent: Number(row.sent),
+  };
 }
 
 export function sessionCounts(db: Database, sessionId: string) {
