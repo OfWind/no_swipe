@@ -48,6 +48,22 @@ A Git marketplace install updates itself. Codex compares `main` when the plugin 
 
 First-time install still uses the two commands in [Install](#install), then a new task.
 
+## Maintainer versioning
+
+Synchronize every plugin, CLI, cloud, marketplace, and lockfile version surface with one command:
+
+```bash
+./scripts/set-version.mjs X.Y.Z
+```
+
+The command validates all inputs before writing, rolls back partial writes, and stamps a fresh immutable Codex build ID. It does not build, upload, commit, push, or publish anything. Verify the current repository state at any time with:
+
+```bash
+./scripts/set-version.mjs --check
+```
+
+The release script reuses this same version synchronizer before its separate build, upload, and commit stages.
+
 ## Repository layout
 
 ```text

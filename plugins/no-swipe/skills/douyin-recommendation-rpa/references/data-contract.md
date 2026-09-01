@@ -148,7 +148,7 @@ SQLite 是本地事实源；Runner 在每条 `processOne` 内先把观察与对�
   "contract_version": 2,
   "session_id": "客户端会话 UUID",
   "client": {
-    "plugin_version": "0.2.6",
+    "plugin_version": "x.y.z",
     "host_fingerprint": "不可逆短哈希"
   },
   "task_config": {},

@@ -18,6 +18,7 @@ If persistent data, public contracts, queued uploads, or deployed services chang
 
 ## Version and artifact rules
 
+- Run `./scripts/set-version.mjs <x.y.z>` from the authoritative repository to update every version surface, then run `./scripts/set-version.mjs --check <x.y.z>` before build or commit. Do not hand-edit the individual manifests, pin, cloud constant, or lockfile.
 - Candidate build metadata identifies a local immutable file set.
 - A published semantic version identifies immutable plugin metadata and CLI artifacts.
 - Never overwrite published Storage objects under an existing version.

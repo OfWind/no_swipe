@@ -1,29 +1,15 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { assertVersionState, setVersion } from "./set-version.mjs";
 
 const ROOT = path.resolve(import.meta.dir, "..");
-const MARKETPLACE_PATH = path.join(ROOT, ".agents/plugins/marketplace.json");
-const PLUGIN_JSON_PATH = path.join(ROOT, "plugins/no-swipe/.codex-plugin/plugin.json");
-const PLUGIN_PACKAGE_PATH = path.join(ROOT, "plugins/no-swipe/package.json");
-const CLI_VERSION_PATH = path.join(ROOT, "plugins/no-swipe/config/cli-version.json");
-const SUPABASE_JSON_PATH = path.join(ROOT, "plugins/no-swipe/config/supabase.json");
-const CLI_PACKAGE_PATH = path.join(ROOT, "cli/package.json");
-const CLOUD_PATH = path.join(ROOT, "cli/src/cloud.ts");
 const ARTIFACTS = [
   "manifest.json",
   "no-swipe-darwin-arm64.gz",
   "no-swipe-darwin-x64.gz",
   "no-swipe-windows-x64.exe.gz",
 ];
-
-function readJson(file: string) {
-  return JSON.parse(readFileSync(file, "utf8"));
-}
-
-function writeJson(file: string, value: unknown) {
-  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
-}
 
 function run(command: string[], cwd = ROOT) {
   const proc = Bun.spawnSync(command, { cwd, stdout: "inherit", stderr: "inherit" });
@@ -36,42 +22,6 @@ function captured(command: string[], cwd = ROOT) {
   const stderr = new TextDecoder().decode(proc.stderr);
   if (proc.exitCode !== 0) throw new Error(`${command.join(" ")} failed: ${stderr || stdout}`);
   return stdout.trim();
-}
-
-function stamp() {
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-}
-
-function bumpVersions(version: string) {
-  const marketplace = readJson(MARKETPLACE_PATH);
-  marketplace.version = version;
-  if (Array.isArray(marketplace.plugins) && marketplace.plugins[0]) marketplace.plugins[0].version = version;
-  writeJson(MARKETPLACE_PATH, marketplace);
-
-  const plugin = readJson(PLUGIN_JSON_PATH);
-  plugin.version = `${version}+codex.${stamp()}`;
-  writeJson(PLUGIN_JSON_PATH, plugin);
-
-  const pluginPackage = readJson(PLUGIN_PACKAGE_PATH);
-  pluginPackage.version = version;
-  writeJson(PLUGIN_PACKAGE_PATH, pluginPackage);
-
-  writeJson(CLI_VERSION_PATH, { version });
-
-  const supabase = readJson(SUPABASE_JSON_PATH);
-  supabase.plugin_version = version;
-  writeJson(SUPABASE_JSON_PATH, supabase);
-
-  const cliPackage = readJson(CLI_PACKAGE_PATH);
-  cliPackage.version = version;
-  writeJson(CLI_PACKAGE_PATH, cliPackage);
-
-  const cloud = readFileSync(CLOUD_PATH, "utf8");
-  const next = cloud.replace(/plugin_version: "[^"]+"/, `plugin_version: "${version}"`);
-  if (next === cloud) throw new Error("failed to bump cli/src/cloud.ts plugin_version");
-  writeFileSync(CLOUD_PATH, next);
 }
 
 function supabaseWorkdir() {
@@ -101,6 +51,7 @@ function commitAndMaybePush(version: string, push: boolean) {
     ".agents/plugins/marketplace.json",
     "plugins/no-swipe/.codex-plugin/plugin.json",
     "plugins/no-swipe/package.json",
+    "plugins/no-swipe/package-lock.json",
     "plugins/no-swipe/config/cli-version.json",
     "plugins/no-swipe/config/supabase.json",
     "cli/package.json",
@@ -127,14 +78,14 @@ const flags = new Set(args.filter((arg) => arg.startsWith("--")));
 const workdirIndex = args.indexOf("--supabase-workdir");
 const workdir = workdirIndex >= 0 ? path.resolve(args[workdirIndex + 1]) : supabaseWorkdir();
 
-const current = readJson(CLI_VERSION_PATH).version;
+const current = assertVersionState(ROOT).version;
 if (current === version && !flags.has("--reuse-version")) {
   throw new Error(`${version} is already the current cli-version; pass --reuse-version to rebuild and upload it`);
 }
-if (current !== version) bumpVersions(version);
+if (current !== version) setVersion(version, { root: ROOT });
 if (!flags.has("--skip-tests")) {
   run(["bun", "test"], path.join(ROOT, "cli"));
-  run(["node", "--test", "scripts/repository-contract.test.mjs"], ROOT);
+  run(["node", "--test", "scripts/set-version.test.mjs", "scripts/repository-contract.test.mjs"], ROOT);
   run(["node", "--test"], path.join(ROOT, "plugins/no-swipe"));
 }
 if (!flags.has("--skip-build")) run(["bun", "scripts/build.ts"], path.join(ROOT, "cli"));

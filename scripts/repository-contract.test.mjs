@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { assertVersionState } from "./set-version.mjs";
 
 const execFileAsync = promisify(execFile);
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -71,13 +72,10 @@ test("plugin package tests pass without repository-level files", async () => {
   }
 });
 
-test("marketplace and plugin versions stay paired for Codex cache activation", async () => {
-  const version = JSON.parse(await fs.readFile(path.join(PLUGIN_ROOT, "config/cli-version.json"), "utf8")).version;
-  const plugin = JSON.parse(await fs.readFile(path.join(PLUGIN_ROOT, ".codex-plugin/plugin.json"), "utf8"));
-  const marketplace = JSON.parse(await fs.readFile(path.join(REPOSITORY_ROOT, ".agents/plugins/marketplace.json"), "utf8"));
-  assert.equal(plugin.version.split("+", 1)[0], version);
-  assert.equal(marketplace.version, version);
-  assert.equal(marketplace.plugins[0].version, version);
+test("all release version surfaces stay paired", () => {
+  const state = assertVersionState(REPOSITORY_ROOT);
+  assert.equal(state.ok, true);
+  assert.equal(state.surfaceCount, 10);
 });
 
 test("current implementation docs do not prescribe author or creator profile navigation", async () => {
