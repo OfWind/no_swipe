@@ -76,6 +76,7 @@ export function openDb(dbPath: string): Database {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id, feed_index);
+    CREATE INDEX IF NOT EXISTS idx_observations_session_aweme ON observations(session_id, aweme_id);
     CREATE TABLE IF NOT EXISTS outbox (
       record_id TEXT PRIMARY KEY REFERENCES observations(observation_id),
       session_id TEXT NOT NULL REFERENCES sessions(session_id),

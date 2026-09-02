@@ -8,16 +8,25 @@ const ACTION_VERIFY_DELAYS_MS = [750, 1_250, 2_000, 3_000];
 const TRANSITION_VERIFY_DELAYS_MS = [750, 1_250, 2_000, 3_000];
 const MEDIA_READY_DELAYS_MS = [250, 500, 750, 1_000];
 const MAX_CLI_OUTPUT_BYTES = 1_000_000;
+const DEFAULT_MAX_DUPLICATE_SKIPS = 8;
 
 function compactError(error) {
   return String(error?.message || error || "unknown error").slice(0, 500);
 }
 
 function pageSummary(page) {
-  return {
+  const summary = {
     surface: String(page?.surface || ""),
     aweme_id: String(page?.aweme_id || ""),
   };
+  if (page?.stop_evidence) {
+    summary.stop_evidence = {
+      signal: String(page.stop_evidence.signal || page.stop_text_hit || ""),
+      source: String(page.stop_evidence.source || ""),
+      rect: page.stop_evidence.rect || null,
+    };
+  }
+  return summary;
 }
 
 function isActivePage(page) {
@@ -26,6 +35,16 @@ function isActivePage(page) {
 
 function isMediaReady(page) {
   return page?.content_type !== "unknown" && page?.media_state !== "loading";
+}
+
+function completedObservation(result) {
+  return result?.status === "advanced"
+    || (
+      result?.status === "stop_required"
+      && result?.stop_phase === "next_page_preflight"
+      && result?.committed === true
+      && result?.transition?.ok === true
+    );
 }
 
 async function settleInitialMedia({ tab, page, readFacts }) {
@@ -427,6 +446,7 @@ export async function createDouyinRunner(options = {}) {
   const resolveEvidence = options.resolveEvidence || (async (page) => inferFeedEvidence(page));
   const syncEvery = Math.max(0, Number(options.syncEvery ?? DEFAULT_SYNC_EVERY));
   const completionTimeoutMs = Math.max(5_000, Number(options.completionTimeoutMs || 195_000));
+  const maxDuplicateSkips = Math.max(1, Number(options.maxDuplicateSkips || DEFAULT_MAX_DUPLICATE_SKIPS));
   let committedSinceSync = 0;
   let pendingTransition = null;
 
@@ -468,6 +488,7 @@ export async function createDouyinRunner(options = {}) {
       upload: pending.upload,
       sync: syncResult,
       transition: {
+        ok: true,
         method,
         from_aweme_id: pending.from_aweme_id,
         to_aweme_id: String(page.aweme_id),
@@ -484,21 +505,36 @@ export async function createDouyinRunner(options = {}) {
     } catch (error) {
       return { status: "browser_error", reason: compactError(error), record_id: pending.record_id, committed: true };
     }
+    if (isActivePage(latestPage) && String(latestPage.aweme_id) !== pending.from_aweme_id) {
+      try {
+        const finalized = await finalizePendingTransition({ page: latestPage, method: "DELAYED_SETTLED" });
+        if (!latestPage?.stop_text_hit) return finalized;
+        return {
+          ...finalized,
+          status: "stop_required",
+          reason: String(latestPage.stop_text_hit),
+          stop_phase: "next_page_preflight",
+          committed: true,
+        };
+      } catch (error) {
+        return { status: "transition_audit_failed", reason: compactError(error), record_id: pending.record_id, committed: true };
+      }
+    }
     if (latestPage?.stop_text_hit) {
       return {
         status: "stop_required",
         reason: String(latestPage.stop_text_hit),
+        stop_phase: "pending_transition",
         record_id: pending.record_id,
         committed: true,
+        retryable: false,
+        transition: {
+          ok: null,
+          from_aweme_id: pending.from_aweme_id,
+          to_aweme_id: String(latestPage?.aweme_id || pending.from_aweme_id),
+        },
         page: pageSummary(latestPage),
       };
-    }
-    if (isActivePage(latestPage) && String(latestPage.aweme_id) !== pending.from_aweme_id) {
-      try {
-        return await finalizePendingTransition({ page: latestPage, method: "DELAYED_SETTLED" });
-      } catch (error) {
-        return { status: "transition_audit_failed", reason: compactError(error), record_id: pending.record_id, committed: true };
-      }
     }
     if (pending.retry_attempted) {
       return {
@@ -529,13 +565,29 @@ export async function createDouyinRunner(options = {}) {
       if (operation.settle_ms) await tab.playwright.waitForTimeout(Number(operation.settle_ms));
       latestPage = await readFacts();
       if (isActivePage(latestPage) && String(latestPage.aweme_id) !== pending.from_aweme_id) {
-        return await finalizePendingTransition({ page: latestPage, method: retryMethod });
+        const finalized = await finalizePendingTransition({ page: latestPage, method: retryMethod });
+        if (!latestPage?.stop_text_hit) return finalized;
+        return {
+          ...finalized,
+          status: "stop_required",
+          reason: String(latestPage.stop_text_hit),
+          stop_phase: "next_page_preflight",
+          committed: true,
+        };
       }
       for (const waitMs of TRANSITION_VERIFY_DELAYS_MS) {
         await tab.playwright.waitForTimeout(waitMs);
         latestPage = await readFacts();
         if (isActivePage(latestPage) && String(latestPage.aweme_id) !== pending.from_aweme_id) {
-          return await finalizePendingTransition({ page: latestPage, method: `${retryMethod}_SETTLED` });
+          const finalized = await finalizePendingTransition({ page: latestPage, method: `${retryMethod}_SETTLED` });
+          if (!latestPage?.stop_text_hit) return finalized;
+          return {
+            ...finalized,
+            status: "stop_required",
+            reason: String(latestPage.stop_text_hit),
+            stop_phase: "next_page_preflight",
+            committed: true,
+          };
         }
         if (latestPage?.stop_text_hit) break;
       }
@@ -555,40 +607,95 @@ export async function createDouyinRunner(options = {}) {
   const processOne = async () => {
     if (pendingTransition) return reconcilePendingTransition();
     let initialPage;
+    let planned;
+    let duplicateSkips = 0;
     try {
       initialPage = await readFacts();
-      initialPage = await settleInitialMedia({ tab, page: initialPage, readFacts });
     } catch (error) {
       return { status: "browser_error", reason: compactError(error), page: { surface: "", aweme_id: "" } };
     }
-    if (initialPage?.stop_text_hit) {
-      return { status: "stop_required", reason: String(initialPage.stop_text_hit), page: pageSummary(initialPage) };
-    }
-    if (!isActivePage(initialPage)) {
-      return { status: "no_active_video", reason: "runner requires one active video", page: pageSummary(initialPage) };
-    }
-    if (!isMediaReady(initialPage)) {
-      return {
-        status: "media_loading",
-        reason: "active media is not ready after the bounded settle window",
-        page: pageSummary(initialPage),
-      };
-    }
 
-    let planned;
-    try {
-      planned = await step({ runConfig, page: initialPage });
-      if (planned?.status === "needs_evidence") {
-        const evidence = await resolveEvidence(initialPage, planned);
-        planned = await step({
-          runConfig,
-          page: initialPage,
-          record_id: planned.record_id,
-          evidence: evidence || inferFeedEvidence(initialPage),
-        });
+    while (true) {
+      try {
+        initialPage = await settleInitialMedia({ tab, page: initialPage, readFacts });
+      } catch (error) {
+        return { status: "browser_error", reason: compactError(error), page: pageSummary(initialPage) };
       }
-    } catch (error) {
-      return { status: "cli_error", reason: compactError(error), page: pageSummary(initialPage) };
+      if (initialPage?.stop_text_hit) {
+        return {
+          status: "stop_required",
+          reason: String(initialPage.stop_text_hit),
+          stop_phase: "preflight",
+          committed: false,
+          page: pageSummary(initialPage),
+        };
+      }
+      if (!isActivePage(initialPage)) {
+        return { status: "no_active_video", reason: "runner requires one active video", page: pageSummary(initialPage) };
+      }
+      if (!isMediaReady(initialPage)) {
+        return {
+          status: "media_loading",
+          reason: "active media is not ready after the bounded settle window",
+          page: pageSummary(initialPage),
+        };
+      }
+
+      try {
+        planned = await step({ runConfig, page: initialPage });
+        if (planned?.status === "needs_evidence") {
+          const evidence = await resolveEvidence(initialPage, planned);
+          planned = await step({
+            runConfig,
+            page: initialPage,
+            record_id: planned.record_id,
+            evidence: evidence || inferFeedEvidence(initialPage),
+          });
+        }
+      } catch (error) {
+        return { status: "cli_error", reason: compactError(error), page: pageSummary(initialPage) };
+      }
+
+      if (planned?.status !== "duplicate_page") break;
+      if (duplicateSkips >= maxDuplicateSkips) {
+        return {
+          status: "duplicate_loop",
+          reason: "duplicate_page_limit",
+          duplicate_skips: duplicateSkips,
+          page: pageSummary(initialPage),
+        };
+      }
+      const duplicateTransition = await advanceFeed({
+        tab,
+        plan: planned.advance_plan,
+        initialPage,
+        latestPage: initialPage,
+        readFacts,
+      });
+      if (duplicateTransition.page?.stop_text_hit) {
+        return {
+          status: "stop_required",
+          reason: String(duplicateTransition.page.stop_text_hit),
+          stop_phase: "preflight",
+          committed: false,
+          duplicate_skips: duplicateSkips,
+          page: pageSummary(duplicateTransition.page),
+        };
+      }
+      if (!duplicateTransition.ok) {
+        return {
+          status: "duplicate_transition_failed",
+          reason: duplicateTransition.reason,
+          duplicate_skips: duplicateSkips,
+          transition: {
+            from_aweme_id: duplicateTransition.from_aweme_id,
+            to_aweme_id: duplicateTransition.to_aweme_id,
+          },
+          page: pageSummary(duplicateTransition.page),
+        };
+      }
+      duplicateSkips += 1;
+      initialPage = duplicateTransition.page;
     }
 
     if (!["planned", "committed"].includes(planned?.status)) {
@@ -598,6 +705,7 @@ export async function createDouyinRunner(options = {}) {
     let committed = planned;
     let latestPage = initialPage;
     let fatal = null;
+    let actionResults = null;
     if (Array.isArray(planned.execution_plan) && planned.execution_plan.length > 0) {
       try {
         const executed = await executePlan({
@@ -609,6 +717,7 @@ export async function createDouyinRunner(options = {}) {
         });
         latestPage = executed.latestPage;
         fatal = executed.fatal;
+        actionResults = executed.results;
         if (planned.status === "planned") {
           committed = await step({
             runConfig,
@@ -631,6 +740,63 @@ export async function createDouyinRunner(options = {}) {
       };
     }
     if (fatal) {
+      const actionTransitionSucceeded = fatal.status === "stop_required"
+        && actionResults?.not_interested?.success === true
+        && isActivePage(latestPage)
+        && String(latestPage.aweme_id) !== String(initialPage.aweme_id);
+      if (actionTransitionSucceeded) {
+        try {
+          const recorded = await recordTransition({
+            record_id: committed.record_id,
+            transition_ok: true,
+            scroll_delta: 1,
+            method: "action_transition",
+            reason: null,
+            from_aweme_id: String(initialPage.aweme_id),
+            to_aweme_id: String(latestPage.aweme_id),
+            before_url: String(initialPage?.url || ""),
+            after_url: String(latestPage?.url || ""),
+          });
+          if (recorded?.status !== "transition_recorded") {
+            throw new Error(`unexpected transition audit result: ${recorded?.status || "unknown"}`);
+          }
+          committedSinceSync += 1;
+        } catch (error) {
+          return {
+            status: "transition_audit_failed",
+            reason: compactError(error),
+            prior_status: fatal.status,
+            record_id: committed.record_id,
+            committed: true,
+            page: pageSummary(latestPage),
+          };
+        }
+        let syncResult = null;
+        try {
+          syncResult = await syncCheckpoint();
+        } catch (error) {
+          syncResult = { status: "runner_sync_error", reason: compactError(error) };
+        }
+        return {
+          status: "stop_required",
+          reason: fatal.reason,
+          operation: fatal.operation,
+          stop_phase: "next_page_preflight",
+          record_id: committed.record_id,
+          committed: true,
+          progress: committed.progress,
+          upload: committed.upload,
+          sync: syncResult,
+          duplicate_skips: duplicateSkips,
+          transition: {
+            ok: true,
+            method: "action_transition",
+            from_aweme_id: String(initialPage.aweme_id),
+            to_aweme_id: String(latestPage.aweme_id),
+          },
+          page: pageSummary(latestPage),
+        };
+      }
       try {
         await recordTransition({
           record_id: committed.record_id,
@@ -658,8 +824,15 @@ export async function createDouyinRunner(options = {}) {
         status: fatal.status || "action_failed",
         reason: fatal.reason,
         operation: fatal.operation,
+        stop_phase: fatal.status === "stop_required" ? "post_action" : undefined,
         record_id: committed.record_id,
         committed: true,
+        transition: {
+          ok: false,
+          method: null,
+          from_aweme_id: String(initialPage.aweme_id),
+          to_aweme_id: String(latestPage?.aweme_id || initialPage.aweme_id),
+        },
         page: pageSummary(latestPage),
       };
     }
@@ -722,16 +895,29 @@ export async function createDouyinRunner(options = {}) {
         },
       };
     }
+    let syncResult = null;
+    try {
+      syncResult = await syncCheckpoint();
+    } catch (error) {
+      syncResult = { status: "runner_sync_error", reason: compactError(error) };
+    }
     if (transition.page?.stop_text_hit) {
       return {
         status: "stop_required",
         reason: String(transition.page.stop_text_hit),
+        stop_phase: transition.ok ? "next_page_preflight" : "post_transition",
         record_id: committed.record_id,
         committed: true,
+        progress: transition.ok ? committed.progress : undefined,
+        upload: committed.upload,
+        sync: syncResult,
         transition: {
+          ok: transition.ok,
+          method: transition.method || null,
           from_aweme_id: transition.from_aweme_id,
           to_aweme_id: transition.to_aweme_id,
         },
+        page: pageSummary(transition.page),
       };
     }
     if (!transition.ok) {
@@ -746,19 +932,15 @@ export async function createDouyinRunner(options = {}) {
         },
       };
     }
-    let syncResult = null;
-    try {
-      syncResult = await syncCheckpoint();
-    } catch (error) {
-      syncResult = { status: "runner_sync_error", reason: compactError(error) };
-    }
     return {
       status: "advanced",
       record_id: committed.record_id,
       progress: committed.progress,
       upload: committed.upload,
       sync: syncResult,
+      duplicate_skips: duplicateSkips,
       transition: {
+        ok: true,
         method: transition.method,
         from_aweme_id: transition.from_aweme_id,
         to_aweme_id: transition.to_aweme_id,
@@ -778,7 +960,7 @@ export async function createDouyinRunner(options = {}) {
     }
     return {
       status: results.every((result) => result.status === "advanced") ? "advanced" : results.at(-1)?.status,
-      processed: results.filter((result) => result.status === "advanced").length,
+      processed: results.filter(completedObservation).length,
       elapsed_ms: Date.now() - started,
       results,
     };

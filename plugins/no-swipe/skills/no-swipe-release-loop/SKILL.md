@@ -28,7 +28,7 @@ Keep these boundaries explicit:
 - Preserve unrelated worktree changes and report them separately.
 - Never expose cookies, tokens, authorization headers, OTPs, device codes, or reusable browser-session material.
 - A live test reuses an already confirmed test RunConfig. If none exists, stop at the browser boundary and use the sibling runtime skill's compact confirmation flow.
-- For every live test, verify the visible Douyin account identity from the current page, account menu, or avatar area first; use the canonical self page only when the runtime Skill permits it, and never open another creator's homepage.
+- For every live test, verify the visible Douyin account identity from the current page, account menu, or avatar area; never open the logged-in account's own profile or another creator's homepage.
 - Commit, push, upload, deploy, release, promote, and destructive cleanup require the user's explicit request for that action.
 
 ## The closed loop

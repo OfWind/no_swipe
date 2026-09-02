@@ -181,7 +181,7 @@ function harness({
   };
 }
 
-function delayedNotInterestedHarness({ transitionDelayMs = 1_600 } = {}) {
+function delayedNotInterestedHarness({ transitionDelayMs = 1_600, stopAfterAdvance = null, progress = 1 } = {}) {
   const events = [];
   let clicked = false;
   let advanced = false;
@@ -195,7 +195,7 @@ function delayedNotInterestedHarness({ transitionDelayMs = 1_600 } = {}) {
     content_type: advanced ? "video" : "image_text",
     paused: advanced ? false : null,
     action_state: { liked: false, favorited: false, followed: false },
-    stop_text_hit: null,
+    stop_text_hit: advanced ? stopAfterAdvance : null,
   });
 
   const tab = {
@@ -283,7 +283,7 @@ function delayedNotInterestedHarness({ transitionDelayMs = 1_600 } = {}) {
     return {
       status: "committed",
       record_id: "record-image",
-      progress: 1,
+      progress,
       execution_plan: imageExecutionPlan,
       advance_plan: imageAdvancePlan,
       upload: { pending: 1, dead: 0 },
@@ -334,6 +334,137 @@ test("processOne closes read, act, verify, commit, and advance inside the JS run
   assert.equal(app.transitionPayload.transition_ok, true);
   assert.equal(app.events.filter((event) => event.includes("video-player-digg")).length, 1);
   assert.ok(app.events.indexOf("step:commit") < app.events.indexOf("key:ARROWDOWN"));
+});
+
+test("processOne skips previously observed pages without replanning interactions or increasing progress", async () => {
+  const { createDouyinRunner } = await import(RUNNER_URL.href);
+  const events = [];
+  const ids = ["seen-a", "seen-b", "fresh", "after-fresh"];
+  let index = 0;
+  const page = () => ({
+    surface: "active_video",
+    aweme_id: ids[index],
+    title: ids[index],
+    content_type: "video",
+    paused: false,
+    action_state: { liked: false, favorited: false, followed: false },
+    stop_text_hit: null,
+  });
+  const tab = {
+    playwright: {
+      async waitForTimeout(ms) {
+        events.push(`wait:${ms}`);
+      },
+      locator() {
+        return { async count() { return 1; }, async click() {} };
+      },
+      getByText() {
+        return { last() { return { async count() { return 1; }, async click() {} }; } };
+      },
+    },
+    cua: {
+      async keypress({ keys }) {
+        events.push(`key:${keys.join("+")}:${ids[index]}`);
+        index += 1;
+      },
+      async scroll() {
+        events.push("scroll");
+      },
+    },
+  };
+  const step = async ({ page: current }) => {
+    events.push(`step:${current.aweme_id}`);
+    if (current.aweme_id.startsWith("seen-")) {
+      return {
+        status: "duplicate_page",
+        aweme_id: current.aweme_id,
+        advance_plan: advancePlan({ includeScrollFallback: false }),
+      };
+    }
+    return {
+      status: "committed",
+      record_id: "record-fresh",
+      progress: 1,
+      execution_plan: [],
+      advance_plan: advancePlan({ includeScrollFallback: false }),
+      upload: { pending: 1, dead: 0 },
+    };
+  };
+  let transitionPayload = null;
+  const runner = await createDouyinRunner({
+    tab,
+    dbPath: "/tmp/runner-duplicate-test.sqlite",
+    runConfig: { status: "confirmed", config_hash: "sha256:test" },
+    readFacts: async () => page(),
+    step,
+    recordTransition: async (payload) => {
+      transitionPayload = payload;
+      return { status: "transition_recorded" };
+    },
+    syncEvery: 0,
+  });
+
+  const result = await runner.processOne();
+
+  assert.equal(result.status, "advanced");
+  assert.equal(result.progress, 1);
+  assert.equal(result.duplicate_skips, 2);
+  assert.deepEqual(events.filter((event) => event.startsWith("step:")), ["step:seen-a", "step:seen-b", "step:fresh"]);
+  assert.deepEqual(events.filter((event) => event.startsWith("key:")), [
+    "key:ARROWDOWN:seen-a",
+    "key:ARROWDOWN:seen-b",
+    "key:ARROWDOWN:fresh",
+  ]);
+  assert.equal(transitionPayload.record_id, "record-fresh");
+});
+
+test("processOne stops after the bounded number of duplicate-page transitions", async () => {
+  const { createDouyinRunner } = await import(RUNNER_URL.href);
+  let index = 0;
+  let keypresses = 0;
+  const currentPage = () => ({
+    surface: "active_video",
+    aweme_id: index % 2 === 0 ? "seen-a" : "seen-b",
+    content_type: "video",
+    paused: false,
+    action_state: { liked: false, favorited: false, followed: false },
+    stop_text_hit: null,
+  });
+  const runner = await createDouyinRunner({
+    tab: {
+      playwright: {
+        async waitForTimeout() {},
+        locator() { return { async count() { return 1; }, async click() {} }; },
+        getByText() { return { last() { return { async count() { return 1; }, async click() {} }; } }; },
+      },
+      cua: {
+        async keypress() {
+          keypresses += 1;
+          index += 1;
+        },
+        async scroll() {},
+      },
+    },
+    dbPath: "/tmp/runner-duplicate-limit-test.sqlite",
+    runConfig: { status: "confirmed", config_hash: "sha256:test" },
+    readFacts: async () => currentPage(),
+    step: async ({ page }) => ({
+      status: "duplicate_page",
+      aweme_id: page.aweme_id,
+      advance_plan: advancePlan({ includeScrollFallback: false }),
+    }),
+    recordTransition: async () => {
+      throw new Error("duplicate pages must not create transition audits");
+    },
+    maxDuplicateSkips: 2,
+    syncEvery: 0,
+  });
+
+  const result = await runner.processOne();
+
+  assert.equal(result.status, "duplicate_loop");
+  assert.equal(result.duplicate_skips, 2);
+  assert.equal(keypresses, 2);
 });
 
 test("processOne never advances when the planned action outcome was not committed", async () => {
@@ -479,6 +610,43 @@ test("processOne passively verifies a delayed not-interested transition without 
   assert.equal(app.events.some((event) => event.startsWith("key:")), false);
   assert.equal(app.events.some((event) => event.startsWith("scroll:")), false);
   assert.equal(app.transitionPayload.transition_ok, true);
+});
+
+test("processOne finalizes a not-interested transition before stopping on the destination page", async () => {
+  const { createDouyinRunner } = await import(RUNNER_URL.href);
+  const app = delayedNotInterestedHarness({
+    transitionDelayMs: 500,
+    stopAfterAdvance: "验证码",
+    progress: 16,
+  });
+  const runner = await createDouyinRunner({
+    tab: app.tab,
+    dbPath: "/tmp/runner-test.sqlite",
+    runConfig: { status: "confirmed", config_hash: "sha256:test" },
+    readFacts: app.readFacts,
+    step: app.step,
+    recordTransition: app.recordTransition,
+    syncEvery: 0,
+  });
+
+  const batch = await runner.processBatch({ maxItems: 1 });
+  const result = batch.results[0];
+
+  assert.equal(batch.status, "stop_required");
+  assert.equal(batch.processed, 1);
+  assert.equal(result.status, "stop_required");
+  assert.equal(result.reason, "验证码");
+  assert.equal(result.stop_phase, "next_page_preflight");
+  assert.equal(result.committed, true);
+  assert.equal(result.progress, 16);
+  assert.equal(result.transition.ok, true);
+  assert.equal(result.transition.method, "action_transition");
+  assert.equal(result.transition.from_aweme_id, "image-current");
+  assert.equal(result.transition.to_aweme_id, "image-next");
+  assert.equal(app.transitionPayload.transition_ok, true);
+  assert.equal(app.transitionPayload.scroll_delta, 1);
+  assert.equal(app.events.some((event) => event.startsWith("key:")), false);
+  assert.equal(app.events.some((event) => event.startsWith("scroll:")), false);
 });
 
 test("processOne waits for a mounting slide to expose its video before planning", async () => {
@@ -633,7 +801,13 @@ test("processOne stops before CLI planning and browser actions on a page safety 
 
   const result = await runner.processOne();
 
-  assert.deepEqual(result, { status: "stop_required", reason: "验证码", page: { surface: "active_video", aweme_id: "1" } });
+  assert.deepEqual(result, {
+    status: "stop_required",
+    reason: "验证码",
+    stop_phase: "preflight",
+    committed: false,
+    page: { surface: "active_video", aweme_id: "1" },
+  });
   assert.equal(app.stepCalls, 0);
   assert.equal(app.events.some((event) => event.startsWith("click:")), false);
 });

@@ -75,16 +75,18 @@ export function runStep(input: {
     return { status: "stop_required", record_id: recordId, reason: stopText };
   }
 
-  const lastAweme = db.query(
-    "SELECT aweme_id FROM observations WHERE session_id=? ORDER BY feed_index DESC LIMIT 1",
-  ).get(sessionId) as { aweme_id?: string } | null;
   const awemeId = String(page.aweme_id || "");
-  if (awemeId && lastAweme?.aweme_id && awemeId === lastAweme.aweme_id) {
+  const existingAweme = awemeId
+    ? db.query("SELECT 1 AS found FROM observations WHERE session_id=? AND aweme_id=? LIMIT 1")
+      .get(sessionId, awemeId) as { found: number } | null
+    : null;
+  if (existingAweme) {
     return {
       status: "duplicate_page",
       record_id: recordId,
       aweme_id: awemeId,
-      reason: "当前内容与上一条已记录内容相同，推荐流未切换；先完成切换再重试。",
+      advance_plan: buildAdvancePlan(page),
+      reason: "当前内容已在本次运行中记录，先切换到未记录内容再继续。",
     };
   }
 

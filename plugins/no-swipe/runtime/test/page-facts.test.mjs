@@ -180,3 +180,54 @@ test("a visible video wins over an earlier hidden video while the slide is still
   assert.equal(facts.current_position_seconds, 12);
   assert.equal(facts.paused, false);
 });
+
+test("stop words in non-blocking page text do not trigger a safety stop", async () => {
+  const document = {
+    body: { innerText: "普通推荐流内容\n屏幕外帮助区：验证码说明" },
+    querySelector() {
+      return null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+  const source = await fs.readFile(FACTS_URL, "utf8");
+  const facts = vm.runInNewContext(`(${source})()`, {
+    document,
+    location: { href: "https://www.douyin.com/?recommend=1", pathname: "/" },
+    window: { innerWidth: 1280, innerHeight: 720 },
+  });
+
+  assert.equal(facts.stop_text_hit, null);
+  assert.equal(facts.stop_evidence, null);
+});
+
+test("a visible blocking dialog returns auditable stop evidence", async () => {
+  const dialog = new FakeElement({
+    rect: { left: 300, top: 120, right: 980, bottom: 620, width: 680, height: 500 },
+    attrs: { role: "dialog", "aria-modal": "true" },
+  });
+  dialog.innerText = "请完成验证码后继续访问";
+  dialog.textContent = dialog.innerText;
+  const document = {
+    body: { innerText: dialog.innerText },
+    querySelector() {
+      return null;
+    },
+    querySelectorAll(selector) {
+      return selector.includes('[role="dialog"]') ? [dialog] : [];
+    },
+  };
+  const source = await fs.readFile(FACTS_URL, "utf8");
+  const facts = vm.runInNewContext(`(${source})()`, {
+    document,
+    location: { href: "https://www.douyin.com/?recommend=1", pathname: "/" },
+    window: { innerWidth: 1280, innerHeight: 720 },
+  });
+
+  assert.equal(facts.stop_text_hit, "验证码");
+  assert.equal(facts.stop_evidence.signal, "验证码");
+  assert.equal(facts.stop_evidence.source, "visible_blocker");
+  assert.equal(facts.stop_evidence.rect.width, 680);
+  assert.match(facts.stop_evidence.text, /请完成验证码/);
+});

@@ -28,11 +28,11 @@ function proseStatements(source) {
 }
 
 function isExplicitlyProhibited(statement) {
-  return /(?:never|do not|don't|must not|without opening|retired|removed|deprecated|禁止|不要|不得|切勿|避免|无需|不能|不可|废弃|已退役|已移除|未(?:打开|进入|访问|跳转|前往|停留)|不(?:再|应|可|要)?(?:打开|进入|访问|跳转|前往|停留)|不进)/i.test(statement);
+  return /(?:never|do not|don't|must not|without opening|retired|removed|deprecated|禁止|不要|不得|切勿|避免|无需|不能|不可|废弃|已退役|已移除|未(?:打开|进入|访问|导航|跳转|前往|停留)|不(?:再|应|可|要)?(?:打开|进入|访问|导航|跳转|前往|停留)|不进)/i.test(statement);
 }
 
-// The logged-in account's own profile page is an allowed identity source;
-// only navigation to another creator's/author's profile must stay prohibited.
+// Identity stays on the current page, account menu, or avatar area. Neither
+// the logged-in account's own profile nor another creator profile is an input.
 function findProfileNavigationInstructions(source) {
   const navigation = /(?:\b(?:open|visit|enter|navigate(?:\s+to)?|go\s+to|stay\s+on)\b|打开|进入|访问|跳转(?:到|至)?|前往|停留(?:在)?)/i;
   const profileTarget = /(?:\b(?:author(?:'s)?|creator(?:'s)?)\b[^\n]{0,80}\b(?:profile|home\s?page)\b|(?:作者|创作者|达人)[^\n]{0,50}(?:主页|首页|个人页|资料页))/i;
@@ -156,6 +156,11 @@ test("product entrypoints do not contain the former test persona or implicit exe
 test("all shipped prompts resolve identity current-surface-first without creator-profile navigation", async () => {
   for (const file of SHIPPED_PROMPT_ENTRYPOINTS) {
     const source = await fs.readFile(path.join(ROOT, file), "utf8");
+    assert.doesNotMatch(
+      source,
+      /(?:https?:\/\/www\.douyin\.com)?\/user\/self/i,
+      `${file} must not route identity through the logged-in account profile`,
+    );
     assert.deepEqual(
       findProfileNavigationInstructions(source),
       [],

@@ -25,7 +25,7 @@ Before the first browser action:
 
 1. run the exact candidate bootstrap and require `auth.connected=true`;
 2. verify machine-level outbox recovery is settled or explicitly preserve the remaining rows;
-3. resolve the current logged-in account from the visible current page or the canonical self page according to the runtime Skill;
+3. resolve the current logged-in account from the visible current page, account menu, or avatar area without opening any profile;
 4. require the expected nickname and Douyin ID;
 5. validate a confirmed all-zero-interaction RunConfig and its hash;
 6. bind the test to one browser mode, one tab, one database, and one Goal;
@@ -38,14 +38,17 @@ Stop before feed actions on account mismatch, login gate, CAPTCHA, on-page acces
 Create one runner instance from the exact candidate root and reuse it while the tab, RunConfig, database, and candidate remain unchanged. One `processOne()` call owns one item.
 
 - Read facts with the shipped extractor; do not rediscover selectors from a full-page snapshot.
+- Accept a safety phrase only with structured evidence from a viewport-visible blocking container; whole-page text is not a stop detector.
 - Keep `evaluate` read-only.
 - Execute state changes only through live locator/CUA calls.
 - Attempt every planned interaction or transition control at most once.
+- Treat an ID observed earlier in the same session as a transition-only duplicate: do not allocate quota, execute interactions, persist it, upload it, or increment progress. Keep duplicate transitions bounded and stop if they do not reach an unobserved ID.
 - Record planned, attempted, verified, and actual results separately.
 - Commit the observation locally before attempting the transition.
 - Verify transition by a changed active `aweme_id` across the runner's bounded staged waits.
 - Finalize the transition audit before allowing the outbox row to upload.
-- Stop on any non-advanced terminal status and preserve the tab.
+- When an interaction such as not interested changes the active ID, finalize that successful transition before applying a destination-page safety stop.
+- Stop on any non-advanced terminal status and preserve the tab. Preserve `committed`, `stop_phase`, `progress`, and `transition` in the result so the caller can distinguish an untouched page from a completed current item followed by a blocked destination page.
 
 Do not issue a second click, keypress, scroll, navigation, or reload from a timeout/error catch.
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "No Swipe 候选闭环验收"
   short_description: "安装候选、双浏览器验收、问题归因、迭代修复与发布把关"
-  default_prompt: "Use $no-swipe-release-loop to build and install a No Swipe candidate, verify the visible Douyin identity from the current page without opening another creator homepage, run closed-loop acceptance in the requested browser modes, diagnose failures, iterate, and report the release gate."
+  default_prompt: "Use $no-swipe-release-loop to build and install a No Swipe candidate, verify the visible Douyin identity from the current page, account menu, or avatar area without opening any profile, run closed-loop acceptance in the requested browser modes, diagnose failures, iterate, and report the release gate."

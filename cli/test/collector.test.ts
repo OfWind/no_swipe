@@ -301,6 +301,35 @@ test("step persists when evidence is explicitly null", () => {
   expect(result.record_id).toBe("rec-null");
 });
 
+test("step rejects an aweme id already observed earlier in the active session", () => {
+  const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-duplicate-")), "facts.sqlite");
+  startSession(dbPath, 5, "observed");
+  const runConfig = sealedRunConfig();
+
+  const first = runStep({
+    dbPath,
+    runConfig,
+    page: { aweme_id: "duplicate-a", title: "first", duration_seconds: 120, like_count: 5000 },
+  });
+  const second = runStep({
+    dbPath,
+    runConfig,
+    page: { aweme_id: "duplicate-b", title: "second", duration_seconds: 120, like_count: 5000 },
+  });
+  const repeated = runStep({
+    dbPath,
+    runConfig,
+    page: { aweme_id: "duplicate-a", title: "first again", duration_seconds: 120, like_count: 5000 },
+  });
+
+  expect(first.status).toBe("committed");
+  expect(second.status).toBe("committed");
+  expect(repeated.status).toBe("duplicate_page");
+  expect(repeated.advance_plan[0].keys).toEqual(["ARROWDOWN"]);
+  const count = openDb(dbPath).query("SELECT COUNT(*) AS count FROM observations").get() as { count: number };
+  expect(count.count).toBe(2);
+});
+
 test("step asks for evidence then commits", () => {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
   startSession(dbPath, 5, "relevant");

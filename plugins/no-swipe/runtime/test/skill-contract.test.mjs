@@ -66,6 +66,32 @@ test("user-visible Goal is Chinese and keeps internal identifiers private", asyn
   assert.doesNotMatch(goalSection, /Execute Douyin run|<run_id>|<account_ref>|<config_hash>/);
 });
 
+test("skill keeps routine feed progress compact and product-facing", async () => {
+  const skill = await fs.readFile(
+    path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
+    "utf8",
+  );
+  const progressStart = skill.indexOf("### Keep routine progress compact");
+  const progressEnd = skill.indexOf("## 5. Apply the configured feed rules");
+  const progressSection = skill.slice(progressStart, progressEnd);
+
+  assert.ok(progressStart >= 0 && progressStart < progressEnd);
+  assert.match(progressSection, /Do not announce or explain a run mode to the user/);
+  assert.match(progressSection, /Every 5 verified observations/);
+  assert.match(progressSection, /no later than 60 seconds/);
+  assert.match(progressSection, /Increment user-visible progress only after `status=advanced`, or after `status=stop_required`.*`stop_phase=next_page_preflight`.*`transition\.ok=true`/s);
+  assert.match(progressSection, /Only a server ACK may increase the uploaded count/);
+  assert.match(progressSection, /进度 <已完成>\/<目标>/);
+  assert.match(progressSection, /已持久化 <已完成>/);
+  assert.match(progressSection, /已上传 <已上传>/);
+  assert.match(progressSection, /待传 <待传>、死信 <死信>/);
+  assert.match(progressSection, /`status=media_loading`.*without a chat update/s);
+  assert.match(progressSection, /`status=transition_pending` with `retryable=true`.*without a chat update/s);
+  assert.match(progressSection, /Do not send per-item progress messages/);
+  assert.match(progressSection, /pending=0.*dead=0.*server ACK/s);
+  assert.doesNotMatch(progressSection, /诊断模式|验收模式|diagnostic mode|acceptance mode/i);
+});
+
 test("skill defines explicit extend and replace semantics", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
@@ -150,21 +176,29 @@ test("skill restores the live-tab JS runner as the only per-item browser state m
   assert.match(skill, /never hardcode a version remembered from an earlier task/);
   assert.match(skill, /execute each planned interaction control at most once inside `runner\.processOne\(\)`/);
   assert.match(skill, /status=media_loading/);
+  assert.match(skill, /already observed anywhere in the active session.*duplicate.*not a new observation/s);
+  assert.match(skill, /without dwell, interaction, persistence, upload, or progress/);
+  assert.match(skill, /eight consecutive duplicate transitions/);
   assert.match(skill, /status=transition_pending/);
   assert.match(skill, /retries only the last transition control once/);
+  assert.match(skill, /stop_evidence\.source=visible_blocker/);
+  assert.match(skill, /Matching words in whole-page text.*are not safety evidence/s);
+  assert.match(skill, /`stop_phase=next_page_preflight`.*`transition\.ok=true`/s);
+  assert.match(skill, /Preserve the runner result fields `committed`, `stop_phase`, `progress`, `transition`/);
   assert.doesNotMatch(skill, /video-player-digg/);
   assert.doesNotMatch(skill, /tab\.cua\.keypress\(\{ keys: \["ARROWDOWN"\] \}\)/);
 });
 
-test("skill allows own-profile identity but never another creator's homepage", async () => {
+test("skill resolves identity on the current surface without opening any profile", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
-  assert.match(skill, /never open another creator's homepage/i);
+  assert.match(skill, /current Douyin page, account menu, or avatar area/i);
+  assert.match(skill, /never open the logged-in account's own profile or another creator's homepage/i);
   assert.match(skill, /never open a creator homepage/i);
-  assert.match(skill, /https:\/\/www\.douyin\.com\/user\/self/);
-  assert.match(skill, /never construct `\/user\/<id>` for anyone else/);
+  assert.match(skill, /If the Douyin ID is not reliably visible.*stop before feed actions/s);
+  assert.doesNotMatch(skill, /https:\/\/www\.douyin\.com\/user\/self|\/user\/self|canonical profile URL/i);
   assert.match(skill, /no-swipe config profile identity/);
   assert.match(skill, /means the Douyin account was switched/);
   assert.match(skill, /runner reads .*douyin_page_facts\.js.*invokes `no-swipe step` internally/i);

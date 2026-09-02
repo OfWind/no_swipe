@@ -92,18 +92,81 @@
     };
   });
 
-  // Platform stop signals (from config/platforms/douyin.v1.json): any hit
-  // means CAPTCHA/rate-limit/login gates — step will refuse to record.
+  // Platform stop signals (from config/platforms/douyin.v1.json) only count
+  // when they are rendered inside a visible blocking UI. Whole-page text can
+  // retain offscreen help copy, stale portals, or video captions containing
+  // words such as "验证码"; those are not safety gates.
   // Do not use the bare substring "登录": "保存登录信息" matches it.
   const stopSignals = ["验证码", "人机验证", "安全验证", "访问受限", "操作频繁", "请求过于频繁", "登录后继续", "请先登录", "账号异常", "暂时无法访问", "异常访问"];
-  const bodyText = (document.body && document.body.innerText || "").slice(0, 8000);
-  const stopTextHit = stopSignals.find((signal) => bodyText.includes(signal)) || null;
+  const stopBlockerSelector = [
+    '[role="dialog"]',
+    '[role="alertdialog"]',
+    '[role="alert"]',
+    '[aria-modal="true"]',
+    '[data-e2e*="captcha" i]',
+    '[data-e2e*="verify" i]',
+    '[id*="captcha" i]',
+    '[id*="verify" i]',
+    '[id*="geetest" i]',
+    '[class*="captcha" i]',
+    '[class*="verify" i]',
+    '[class*="verification" i]',
+    '[class*="geetest" i]',
+    '[class*="rate-limit" i]',
+    '[class*="restriction" i]',
+    '[class*="login-modal" i]',
+    '[class*="login-dialog" i]',
+    '[class*="login-mask" i]',
+  ].join(", ");
+  const active = findActiveSlide();
+  const visibleRect = (el) => {
+    if (!el || typeof el.getBoundingClientRect !== "function") return null;
+    const raw = el.getBoundingClientRect();
+    const left = Math.max(0, Number(raw.left) || 0);
+    const top = Math.max(0, Number(raw.top) || 0);
+    const right = Math.min(Math.max(0, Number(window.innerWidth) || 0), Number(raw.right) || 0);
+    const bottom = Math.min(Math.max(0, Number(window.innerHeight) || 0), Number(raw.bottom) || 0);
+    const width = Math.max(0, right - left);
+    const height = Math.max(0, bottom - top);
+    if (width < 2 || height < 2) return null;
+    return {
+      left: Math.round(left),
+      top: Math.round(top),
+      width: Math.round(width),
+      height: Math.round(height),
+    };
+  };
+  const stopEvidence = (() => {
+    const candidates = unique(document.querySelectorAll(stopBlockerSelector));
+    for (const el of candidates) {
+      const rect = visibleRect(el);
+      if (!rect) continue;
+      const marker = [
+        el.getAttribute?.("id"),
+        el.getAttribute?.("class"),
+        el.getAttribute?.("data-e2e"),
+      ].filter(Boolean).join(" ").toLowerCase();
+      const explicitlyGateLike = /captcha|verify|verification|geetest|rate.?limit|restriction|login.?(modal|dialog|mask)/.test(marker);
+      const wrapsActiveFeed = active && (el === active || (typeof el.contains === "function" && el.contains(active)));
+      if (wrapsActiveFeed && !explicitlyGateLike) continue;
+      const candidateText = text(el).replace(/\s+/g, " ").trim();
+      const signal = stopSignals.find((item) => candidateText.includes(item));
+      if (!signal) continue;
+      return {
+        signal,
+        source: "visible_blocker",
+        text: candidateText.slice(0, 160),
+        rect,
+      };
+    }
+    return null;
+  })();
+  const stopTextHit = stopEvidence?.signal || null;
 
   const cards = cardGeometry();
   const visibleCards = cards.filter((c) => c.w > 40 && c.h > 40);
   const playingVideoCount = Array.from(document.querySelectorAll("video")).filter((el) => visibleArea(el) > 0).length;
 
-  const active = findActiveSlide();
   if (!active) {
     // Waterfall/discover grid, or a player the adapter still cannot bind.
     // Cards often collapse to 0x0 once a slider mounts — do not click them.
@@ -116,6 +179,7 @@
       visible_card_ids: visibleCards.slice(0, 5).map((c) => c.id).filter(Boolean),
       playing_video_count: playingVideoCount,
       stop_text_hit: stopTextHit,
+      stop_evidence: stopEvidence,
     };
   }
 
@@ -202,5 +266,6 @@
     // that an on-screen fallback control exists.
     can_switch_next: Boolean(nextArrow) || siblingSlides > 0,
     stop_text_hit: stopTextHit,
+    stop_evidence: stopEvidence,
   };
 }

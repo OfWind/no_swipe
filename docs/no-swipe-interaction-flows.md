@@ -330,7 +330,7 @@ stateDiagram-v2
 
 ## 8. 账号解析、预设确认、Goal
 
-授权通过后，会话的第一个浏览器动作是直接打开固定自指 URL `https://www.douyin.com/user/self`——它永远显示当前登录账号本人主页，一次导航即可同时读到昵称和抖音号（遇到登录门/验证页则把浏览器展示给用户并停止）。抖音号是唯一裁决：与已绑 account_ref 不一致即视为换号，切换到对应账号目录，不改旧画像。核验后用 `no-swipe config profile identity` 存档昵称（审计用途）。确认运行后再切到推荐流 `https://www.douyin.com/?recommend=1`。内容卡片中的作者头像不属于认号入口；不得打开任何达人（作者）主页，也不得为他人拼接 `/user/<id>` URL。
+授权通过后，只从当前抖音页面、账号菜单或登录账号头像区域读取昵称和抖音号；账号控件折叠时只打开同页面菜单或浮层，不导航到自己或任何作者主页。抖音号是唯一裁决：与已绑 account_ref 不一致即视为换号，切换到对应账号目录，不改旧画像。当前允许界面仍无法可靠显示抖音号时，采集在推荐流动作前停止并请用户展开账号菜单，不使用昵称猜测账号。核验后用 `no-swipe config profile identity` 存档昵称（审计用途）。确认运行后再进入或留在推荐流 `https://www.douyin.com/?recommend=1`。内容卡片中的作者头像不属于登录账号认号入口。
 
 ```mermaid
 sequenceDiagram
@@ -342,9 +342,9 @@ sequenceDiagram
   participant CLI as no-swipe config
   participant Goal as Codex Goal
 
-  Agent->>Br: 复用当前抖音标签页（不切到任何达人主页）
-  Br->>DY: 直接打开 douyin.com/user/self 读取昵称、抖音号
-  Note over Br,DY: 固定自指 URL，一次导航完成认号<br/>确认运行后再切到推荐流
+  Agent->>Br: 复用当前抖音标签页（不切到任何主页）
+  Br->>DY: 从当前页面、账号菜单或头像区域读取昵称、抖音号
+  Note over Br,DY: 只使用同页面可见账号界面<br/>缺少可靠抖音号时停止并请用户展开账号菜单
   Agent->>Agent: account_ref ← 可见抖音号
   Agent->>CLI: 解析 .no-swipe/accounts/ 下该账号目录
   Note over Agent: 一个 No Swipe 用户 : 多个抖音账号 = 1:n<br/>换号是换目录，不是改同一份画像
@@ -663,3 +663,4 @@ Agent **不要**做的事：向用户要 OpenAI Key、设备 token、OTP、邮�
 | 2026-08-29 | 0.4.5 | 认号改为直开 /user/self 一次完成；预设删除不可得的粉丝量高相关规则（此前互动配额从未触发），纯排除画像可看即可互动；确认话术精简为「回复 1 开始」 |
 | 2026-08-29 | 0.4.6 | 上传全自动：step 后台水位派生 sync（单飞锁）、finish 内嵌排空、up 启动补传遗留 pending；agent 不再决策上传时机 |
 | 2026-09-01 | 0.4.12 候选 | 恢复有界 JS feed runner：单条完成读取、计划、执行、验证、本地提交和切换；上传改为每 10 条 checkpoint，finish 未排空时保持 active 并返回失败 |
+| 2026-09-01 | 0.4.13 | 普通刷流默认使用每 5 条一行的产品化进度文案；加载等待和一次可恢复转场保持静默；所有入口只从当前页面、账号菜单或头像区域认号，不进入任何主页 |
