@@ -42,7 +42,7 @@ Before the first feed action:
 7. bind the test to one browser mode, one tab, one database, and one Goal;
 8. record the current candidate build ID and CLI binary hash.
 
-Stop before feed actions on account mismatch, login gate, CAPTCHA, on-page access limit, unreliable page facts, stale/detached tab, or uncertain control ownership.
+Keep feed actions going through overlay copy, CAPTCHA dialogs that can be dismissed, and unreliable page facts. Reacquire a stale tab on the same browser binding. Only `feed_stuck` after backoff is a halt.
 
 ## Per-item protocol
 
@@ -58,7 +58,7 @@ Create one runner instance from the exact candidate root and reuse it while the 
 - Commit the observation locally before attempting the transition.
 - Verify transition by a changed active `aweme_id` across the runner's bounded staged waits.
 - Finalize the transition audit before allowing the outbox row to upload.
-- When an interaction such as not interested changes the active ID, finalize that successful transition before applying a destination-page safety stop.
+- When an interaction such as not interested changes the active ID, finalize that successful transition and continue; destination overlay copy is not a stop.
 - Stop on any non-advanced terminal status and preserve the tab. Preserve `committed`, `stop_phase`, `progress`, and `transition` in the result so the caller can distinguish an untouched page from a completed current item followed by a blocked destination page.
 
 Do not issue a second click, keypress, scroll, navigation, or reload from a timeout/error catch.

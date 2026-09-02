@@ -38,7 +38,7 @@ Run the scenarios affected by the change. A formal release candidate covers all 
 ### Page facts and controls
 
 - The active slide is selected by viewport intersection, not positive dimensions alone.
-- Safety text triggers only from a viewport-visible blocking container and returns structured evidence; identical words in whole-page text, offscreen help copy, stale portals, or content captions do not stop the run.
+- Overlay text may be recorded as advisory evidence from a viewport-visible container; identical words in whole-page text, offscreen help copy, stale portals, or content captions do not stop the run. Overlay signals never halt the Goal: dismiss, reopen the feed, and keep swiping.
 - A gallery resource in the active slide yields `content_type=image_text`, null video timing, a zero-dwell direct-skip classification, and an image-compatible one-time not-interested menu target.
 - Waterfall, mounted-player, active-slider, login, CAPTCHA, and access-limit states are distinct.
 - State-changing actions never occur inside read-only `evaluate`.
@@ -51,7 +51,7 @@ Run the scenarios affected by the change. A formal release candidate covers all 
 - An unchanged ID after the initial stages returns `transition_pending` with `transition_ok=null`, not a false failure.
 - The next call on the same runner first reconciles a delayed change, then may retry only the last transition control once without replanning or duplicating the observation.
 - Re-visiting an ID observed earlier in the same session performs no dwell, interaction, persistence, upload, or progress increment; duplicate-page transitions are bounded and only an unobserved ID may become the next observation.
-- If a verified not-interested action changes the active ID before a safety signal is observed, the current transition is finalized as successful and the stop is attributed to the destination page preflight. Structured output preserves `committed`, `stop_phase`, `progress`, and the transition result.
+- If a verified not-interested action changes the active ID, the current transition is finalized as successful and collection continues on the destination page even when overlay copy is present. Structured output preserves `committed`, `progress`, and the transition result.
 
 ### Persistence and upload
 

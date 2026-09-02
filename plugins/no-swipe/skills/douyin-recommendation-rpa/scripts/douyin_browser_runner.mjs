@@ -4,11 +4,22 @@ import fs from "node:fs/promises";
 const DEFAULT_SYNC_EVERY = 10;
 const DEFAULT_BATCH_BUDGET_MS = 45_000;
 const DEFAULT_CLI_TIMEOUT_MS = 30_000;
-const ACTION_VERIFY_DELAYS_MS = [750, 1_250, 2_000, 3_000];
 const TRANSITION_VERIFY_DELAYS_MS = [750, 1_250, 2_000, 3_000];
 const MEDIA_READY_DELAYS_MS = [250, 500, 750, 1_000];
 const MAX_CLI_OUTPUT_BYTES = 1_000_000;
 const DEFAULT_MAX_DUPLICATE_SKIPS = 8;
+const FEED_RECOVERY_BACKOFF_MS = [800, 1_600, 3_200];
+const OVERLAY_DISMISS_SELECTORS = [
+  '[aria-label="关闭"]',
+  '[aria-label="Close"]',
+  '[class*="captcha"] [class*="close"]',
+  '[class*="verify"] [class*="close"]',
+  '[role="dialog"] [aria-label*="关闭"]',
+  '[role="dialog"] [class*="close"]',
+  '[class*="modal"] [class*="close"]',
+];
+const OVERLAY_CLICK_TEXTS = ["关闭", "跳过", "确定"];
+const RECOMMEND_FEED_URL = "https://www.douyin.com/?recommend=1";
 
 function compactError(error) {
   return String(error?.message || error || "unknown error").slice(0, 500);
@@ -37,6 +48,19 @@ function isMediaReady(page) {
   return page?.content_type !== "unknown" && page?.media_state !== "loading";
 }
 
+function hasBlockingSignal(page) {
+  return Boolean(page?.stop_text_hit || page?.stop_evidence?.signal);
+}
+
+function pageForPlanning(page) {
+  if (!page || typeof page !== "object") return page;
+  return {
+    ...page,
+    stop_text_hit: null,
+    stop_evidence: null,
+  };
+}
+
 function completedObservation(result) {
   return result?.status === "advanced"
     || (
@@ -53,7 +77,7 @@ async function settleInitialMedia({ tab, page, readFacts }) {
   for (const waitMs of MEDIA_READY_DELAYS_MS) {
     await tab.playwright.waitForTimeout(waitMs);
     latestPage = await readFacts();
-    if (!isActivePage(latestPage) || isMediaReady(latestPage) || latestPage?.stop_text_hit) break;
+    if (!isActivePage(latestPage) || isMediaReady(latestPage)) break;
   }
   return latestPage;
 }
@@ -78,16 +102,10 @@ async function verifyActionWithPassiveSettle({ tab, resultKey, before, latestPag
   if (actionVerified(resultKey, before, latestPage)) {
     return { latestPage, success: true };
   }
-  if (resultKey !== "not_interested" || latestPage?.stop_text_hit) {
-    return { latestPage, success: false };
-  }
-  for (const waitMs of ACTION_VERIFY_DELAYS_MS) {
-    await tab.playwright.waitForTimeout(waitMs);
+  if (resultKey === "not_interested") {
+    await tab.playwright.waitForTimeout(400);
     latestPage = await readFacts();
-    if (actionVerified(resultKey, before, latestPage)) {
-      return { latestPage, success: true };
-    }
-    if (latestPage?.stop_text_hit) break;
+    return { latestPage, success: actionVerified(resultKey, before, latestPage) };
   }
   return { latestPage, success: false };
 }
@@ -206,6 +224,71 @@ async function clickOperation(tab, operation) {
   await locator.click(click);
 }
 
+async function reopenRecommendationFeed(tab) {
+  const url = `${RECOMMEND_FEED_URL}&v=${Math.floor(Date.now() / 1000)}`;
+  if (typeof tab.goto === "function") {
+    await tab.goto(url);
+    return true;
+  }
+  if (typeof tab.playwright?.goto === "function") {
+    await tab.playwright.goto(url);
+    return true;
+  }
+  if (typeof tab.navigate === "function") {
+    await tab.navigate(url);
+    return true;
+  }
+  return false;
+}
+
+async function dismissBlockingUi({ tab, readFacts, page }) {
+  let latestPage = page;
+  if (!hasBlockingSignal(latestPage)) return latestPage;
+  try {
+    await tab.cua.keypress({ keys: ["ESCAPE"] });
+    await tab.playwright.waitForTimeout(400);
+    latestPage = await readFacts();
+    if (!hasBlockingSignal(latestPage) && isActivePage(latestPage)) return latestPage;
+  } catch {
+    // Keep trying other dismiss paths.
+  }
+  for (const selector of OVERLAY_DISMISS_SELECTORS) {
+    try {
+      const locator = tab.playwright.locator(selector);
+      if (await locatorCount(locator) <= 0) continue;
+      await locator.click({ timeoutMs: 1_500 });
+      await tab.playwright.waitForTimeout(400);
+      latestPage = await readFacts();
+      if (!hasBlockingSignal(latestPage) && isActivePage(latestPage)) return latestPage;
+    } catch {
+      // Next close candidate.
+    }
+  }
+  for (const text of OVERLAY_CLICK_TEXTS) {
+    try {
+      const locator = tab.playwright.getByText(text, { exact: true });
+      const target = typeof locator.last === "function" ? locator.last() : locator;
+      if (await locatorCount(target) <= 0) continue;
+      await target.click({ timeoutMs: 1_500 });
+      await tab.playwright.waitForTimeout(400);
+      latestPage = await readFacts();
+      if (!hasBlockingSignal(latestPage) && isActivePage(latestPage)) return latestPage;
+    } catch {
+      // Next text candidate.
+    }
+  }
+  if (isActivePage(latestPage)) return latestPage;
+  try {
+    if (await reopenRecommendationFeed(tab)) {
+      await tab.playwright.waitForTimeout(1_200);
+      latestPage = await readFacts();
+    }
+  } catch {
+    latestPage = await readFacts();
+  }
+  return latestPage;
+}
+
 async function waitToEnd(tab, readFacts, initialPage, maximumMs) {
   const started = Date.now();
   let latest = initialPage;
@@ -263,13 +346,6 @@ async function executePlan({ tab, plan, initialPage, readFacts, completionTimeou
       } else {
         latestPage = await readFacts();
       }
-      if (latestPage?.stop_text_hit) {
-        fatal = {
-          status: "stop_required",
-          operation: operation.id,
-          reason: String(latestPage.stop_text_hit),
-        };
-      }
       continue;
     }
     if (operation.op === "keypress") {
@@ -313,19 +389,15 @@ async function executePlan({ tab, plan, initialPage, readFacts, completionTimeou
           success,
         };
         skipNextVerifyRead = true;
-        if (latestPage?.stop_text_hit) {
-          fatal = {
-            status: "stop_required",
-            operation: operation.id,
-            reason: String(latestPage.stop_text_hit),
-          };
-        } else if (!success) {
-          fatal = { operation: operation.id, reason: `action_unverified:${resultKey}` };
-        }
       }
     } catch (error) {
-      if (resultKey) results[resultKey] = { attempted: true, success: false };
-      fatal = { operation: operation.id, reason: compactError(error) };
+      if (resultKey) {
+        results[resultKey] = { attempted: true, success: false };
+      } else if (/not_interested/.test(String(operation.id || ""))) {
+        // Live/image skip lanes: missing 不感兴趣 is a swipe, not a halt.
+      } else {
+        fatal = { operation: operation.id, reason: compactError(error) };
+      }
     }
   }
 
@@ -364,7 +436,6 @@ async function advanceFeed({ tab, plan, initialPage, latestPage, readFacts }) {
       if (String(latestPage?.aweme_id || "") !== fromId && isActivePage(latestPage)) {
         return { ok: true, method: "ARROWDOWN_SETTLED", page: latestPage, from_aweme_id: fromId, to_aweme_id: String(latestPage.aweme_id) };
       }
-      if (latestPage?.stop_text_hit) break;
     }
   } catch (error) {
     return { ok: false, reason: compactError(error), page: latestPage, from_aweme_id: fromId, to_aweme_id: String(latestPage?.aweme_id || "") };
@@ -398,7 +469,6 @@ async function advanceFeed({ tab, plan, initialPage, latestPage, readFacts }) {
       if (String(latestPage?.aweme_id || "") !== fromId && isActivePage(latestPage)) {
         return { ok: true, method: "CUA_SCROLL_SETTLED", page: latestPage, from_aweme_id: fromId, to_aweme_id: String(latestPage.aweme_id) };
       }
-      if (latestPage?.stop_text_hit) break;
     }
   } catch (error) {
     return { ok: false, reason: compactError(error), page: latestPage, from_aweme_id: fromId, to_aweme_id: String(latestPage?.aweme_id || "") };
@@ -412,6 +482,38 @@ async function advanceFeed({ tab, plan, initialPage, latestPage, readFacts }) {
     to_aweme_id: String(latestPage?.aweme_id || ""),
     retry_control: { type: "scroll", operation: fallback },
   };
+}
+
+async function recoverFeedAdvance({ tab, plan, initialPage, latestPage, readFacts }) {
+  let transition = await advanceFeed({ tab, plan, initialPage, latestPage, readFacts });
+  if (transition.ok) return transition;
+  const fromId = String(initialPage?.aweme_id || "");
+  for (const waitMs of FEED_RECOVERY_BACKOFF_MS) {
+    latestPage = await dismissBlockingUi({
+      tab,
+      readFacts,
+      page: transition.page || latestPage,
+    });
+    try {
+      await reopenRecommendationFeed(tab);
+    } catch {
+      // Advance retries still proceed on the current tab.
+    }
+    await tab.playwright.waitForTimeout(waitMs);
+    latestPage = await readFacts();
+    if (isActivePage(latestPage) && String(latestPage.aweme_id) !== fromId) {
+      return {
+        ok: true,
+        method: "FEED_REOPEN",
+        page: latestPage,
+        from_aweme_id: fromId,
+        to_aweme_id: String(latestPage.aweme_id),
+      };
+    }
+    transition = await advanceFeed({ tab, plan, initialPage, latestPage, readFacts });
+    if (transition.ok) return transition;
+  }
+  return transition;
 }
 
 export async function createDouyinRunner(options = {}) {
@@ -505,45 +607,38 @@ export async function createDouyinRunner(options = {}) {
     } catch (error) {
       return { status: "browser_error", reason: compactError(error), record_id: pending.record_id, committed: true };
     }
+    if (hasBlockingSignal(latestPage)) {
+      latestPage = await dismissBlockingUi({ tab, readFacts, page: latestPage });
+    }
     if (isActivePage(latestPage) && String(latestPage.aweme_id) !== pending.from_aweme_id) {
       try {
-        const finalized = await finalizePendingTransition({ page: latestPage, method: "DELAYED_SETTLED" });
-        if (!latestPage?.stop_text_hit) return finalized;
-        return {
-          ...finalized,
-          status: "stop_required",
-          reason: String(latestPage.stop_text_hit),
-          stop_phase: "next_page_preflight",
-          committed: true,
-        };
+        return await finalizePendingTransition({ page: latestPage, method: "DELAYED_SETTLED" });
       } catch (error) {
         return { status: "transition_audit_failed", reason: compactError(error), record_id: pending.record_id, committed: true };
       }
     }
-    if (latestPage?.stop_text_hit) {
-      return {
-        status: "stop_required",
-        reason: String(latestPage.stop_text_hit),
-        stop_phase: "pending_transition",
-        record_id: pending.record_id,
-        committed: true,
-        retryable: false,
-        transition: {
-          ok: null,
-          from_aweme_id: pending.from_aweme_id,
-          to_aweme_id: String(latestPage?.aweme_id || pending.from_aweme_id),
-        },
-        page: pageSummary(latestPage),
-      };
-    }
     if (pending.retry_attempted) {
+      const recovered = await recoverFeedAdvance({
+        tab,
+        plan: [{ id: "advance", op: "keypress", keys: ["ARROWDOWN"], settle_ms: 850 }],
+        initialPage: { aweme_id: pending.from_aweme_id },
+        latestPage,
+        readFacts,
+      });
+      if (recovered.ok && isActivePage(recovered.page) && String(recovered.page.aweme_id) !== pending.from_aweme_id) {
+        try {
+          return await finalizePendingTransition({ page: recovered.page, method: recovered.method || "FEED_RECOVER" });
+        } catch (error) {
+          return { status: "transition_audit_failed", reason: compactError(error), record_id: pending.record_id, committed: true };
+        }
+      }
       return {
-        status: "transition_pending",
-        reason: "feed_transition_unverified",
+        status: "feed_stuck",
+        reason: "feed_transition_unverified_after_backoff",
         record_id: pending.record_id,
         committed: true,
         retryable: false,
-        page: pageSummary(latestPage),
+        page: pageSummary(recovered.page || latestPage),
       };
     }
 
@@ -565,31 +660,14 @@ export async function createDouyinRunner(options = {}) {
       if (operation.settle_ms) await tab.playwright.waitForTimeout(Number(operation.settle_ms));
       latestPage = await readFacts();
       if (isActivePage(latestPage) && String(latestPage.aweme_id) !== pending.from_aweme_id) {
-        const finalized = await finalizePendingTransition({ page: latestPage, method: retryMethod });
-        if (!latestPage?.stop_text_hit) return finalized;
-        return {
-          ...finalized,
-          status: "stop_required",
-          reason: String(latestPage.stop_text_hit),
-          stop_phase: "next_page_preflight",
-          committed: true,
-        };
+        return await finalizePendingTransition({ page: latestPage, method: retryMethod });
       }
       for (const waitMs of TRANSITION_VERIFY_DELAYS_MS) {
         await tab.playwright.waitForTimeout(waitMs);
         latestPage = await readFacts();
         if (isActivePage(latestPage) && String(latestPage.aweme_id) !== pending.from_aweme_id) {
-          const finalized = await finalizePendingTransition({ page: latestPage, method: `${retryMethod}_SETTLED` });
-          if (!latestPage?.stop_text_hit) return finalized;
-          return {
-            ...finalized,
-            status: "stop_required",
-            reason: String(latestPage.stop_text_hit),
-            stop_phase: "next_page_preflight",
-            committed: true,
-          };
+          return await finalizePendingTransition({ page: latestPage, method: `${retryMethod}_SETTLED` });
         }
-        if (latestPage?.stop_text_hit) break;
       }
     } catch (error) {
       return { status: "browser_error", reason: compactError(error), record_id: pending.record_id, committed: true };
@@ -621,14 +699,17 @@ export async function createDouyinRunner(options = {}) {
       } catch (error) {
         return { status: "browser_error", reason: compactError(error), page: pageSummary(initialPage) };
       }
-      if (initialPage?.stop_text_hit) {
-        return {
-          status: "stop_required",
-          reason: String(initialPage.stop_text_hit),
-          stop_phase: "preflight",
-          committed: false,
-          page: pageSummary(initialPage),
-        };
+      if (hasBlockingSignal(initialPage)) {
+        initialPage = await dismissBlockingUi({ tab, readFacts, page: initialPage });
+      }
+      if (!isActivePage(initialPage)) {
+        try {
+          await reopenRecommendationFeed(tab);
+          await tab.playwright.waitForTimeout(1_200);
+          initialPage = await readFacts();
+        } catch (error) {
+          return { status: "no_active_video", reason: compactError(error), page: pageSummary(initialPage) };
+        }
       }
       if (!isActivePage(initialPage)) {
         return { status: "no_active_video", reason: "runner requires one active video", page: pageSummary(initialPage) };
@@ -642,12 +723,12 @@ export async function createDouyinRunner(options = {}) {
       }
 
       try {
-        planned = await step({ runConfig, page: initialPage });
+        planned = await step({ runConfig, page: pageForPlanning(initialPage) });
         if (planned?.status === "needs_evidence") {
           const evidence = await resolveEvidence(initialPage, planned);
           planned = await step({
             runConfig,
-            page: initialPage,
+            page: pageForPlanning(initialPage),
             record_id: planned.record_id,
             evidence: evidence || inferFeedEvidence(initialPage),
           });
@@ -672,27 +753,29 @@ export async function createDouyinRunner(options = {}) {
         latestPage: initialPage,
         readFacts,
       });
-      if (duplicateTransition.page?.stop_text_hit) {
-        return {
-          status: "stop_required",
-          reason: String(duplicateTransition.page.stop_text_hit),
-          stop_phase: "preflight",
-          committed: false,
-          duplicate_skips: duplicateSkips,
-          page: pageSummary(duplicateTransition.page),
-        };
-      }
       if (!duplicateTransition.ok) {
-        return {
-          status: "duplicate_transition_failed",
-          reason: duplicateTransition.reason,
-          duplicate_skips: duplicateSkips,
-          transition: {
-            from_aweme_id: duplicateTransition.from_aweme_id,
-            to_aweme_id: duplicateTransition.to_aweme_id,
-          },
-          page: pageSummary(duplicateTransition.page),
-        };
+        const recovered = await recoverFeedAdvance({
+          tab,
+          plan: planned.advance_plan,
+          initialPage,
+          latestPage: duplicateTransition.page || initialPage,
+          readFacts,
+        });
+        if (!recovered.ok) {
+          return {
+            status: "duplicate_transition_failed",
+            reason: recovered.reason,
+            duplicate_skips: duplicateSkips,
+            transition: {
+              from_aweme_id: recovered.from_aweme_id,
+              to_aweme_id: recovered.to_aweme_id,
+            },
+            page: pageSummary(recovered.page),
+          };
+        }
+        duplicateSkips += 1;
+        initialPage = recovered.page;
+        continue;
       }
       duplicateSkips += 1;
       initialPage = duplicateTransition.page;
@@ -721,7 +804,7 @@ export async function createDouyinRunner(options = {}) {
         if (planned.status === "planned") {
           committed = await step({
             runConfig,
-            page: initialPage,
+            page: pageForPlanning(initialPage),
             record_id: planned.record_id,
             action_results: executed.results,
           });
@@ -739,102 +822,8 @@ export async function createDouyinRunner(options = {}) {
         page: pageSummary(initialPage),
       };
     }
-    if (fatal) {
-      const actionTransitionSucceeded = fatal.status === "stop_required"
-        && actionResults?.not_interested?.success === true
-        && isActivePage(latestPage)
-        && String(latestPage.aweme_id) !== String(initialPage.aweme_id);
-      if (actionTransitionSucceeded) {
-        try {
-          const recorded = await recordTransition({
-            record_id: committed.record_id,
-            transition_ok: true,
-            scroll_delta: 1,
-            method: "action_transition",
-            reason: null,
-            from_aweme_id: String(initialPage.aweme_id),
-            to_aweme_id: String(latestPage.aweme_id),
-            before_url: String(initialPage?.url || ""),
-            after_url: String(latestPage?.url || ""),
-          });
-          if (recorded?.status !== "transition_recorded") {
-            throw new Error(`unexpected transition audit result: ${recorded?.status || "unknown"}`);
-          }
-          committedSinceSync += 1;
-        } catch (error) {
-          return {
-            status: "transition_audit_failed",
-            reason: compactError(error),
-            prior_status: fatal.status,
-            record_id: committed.record_id,
-            committed: true,
-            page: pageSummary(latestPage),
-          };
-        }
-        let syncResult = null;
-        try {
-          syncResult = await syncCheckpoint();
-        } catch (error) {
-          syncResult = { status: "runner_sync_error", reason: compactError(error) };
-        }
-        return {
-          status: "stop_required",
-          reason: fatal.reason,
-          operation: fatal.operation,
-          stop_phase: "next_page_preflight",
-          record_id: committed.record_id,
-          committed: true,
-          progress: committed.progress,
-          upload: committed.upload,
-          sync: syncResult,
-          duplicate_skips: duplicateSkips,
-          transition: {
-            ok: true,
-            method: "action_transition",
-            from_aweme_id: String(initialPage.aweme_id),
-            to_aweme_id: String(latestPage.aweme_id),
-          },
-          page: pageSummary(latestPage),
-        };
-      }
-      try {
-        await recordTransition({
-          record_id: committed.record_id,
-          transition_ok: false,
-          scroll_delta: 0,
-          method: null,
-          reason: `advance_not_attempted:${fatal.reason}`,
-          from_aweme_id: String(initialPage.aweme_id),
-          to_aweme_id: String(latestPage?.aweme_id || initialPage.aweme_id),
-          before_url: String(initialPage?.url || ""),
-          after_url: String(latestPage?.url || initialPage?.url || ""),
-        });
-        committedSinceSync += 1;
-      } catch (error) {
-        return {
-          status: "transition_audit_failed",
-          reason: compactError(error),
-          prior_status: fatal.status || "action_failed",
-          record_id: committed.record_id,
-          committed: true,
-          page: pageSummary(latestPage),
-        };
-      }
-      return {
-        status: fatal.status || "action_failed",
-        reason: fatal.reason,
-        operation: fatal.operation,
-        stop_phase: fatal.status === "stop_required" ? "post_action" : undefined,
-        record_id: committed.record_id,
-        committed: true,
-        transition: {
-          ok: false,
-          method: null,
-          from_aweme_id: String(initialPage.aweme_id),
-          to_aweme_id: String(latestPage?.aweme_id || initialPage.aweme_id),
-        },
-        page: pageSummary(latestPage),
-      };
+    if (hasBlockingSignal(latestPage)) {
+      latestPage = await dismissBlockingUi({ tab, readFacts, page: latestPage });
     }
 
     const transition = await advanceFeed({
@@ -844,7 +833,7 @@ export async function createDouyinRunner(options = {}) {
       latestPage,
       readFacts,
     });
-    if (!transition.ok && transition.reason === "feed_transition_unverified" && !transition.page?.stop_text_hit) {
+    if (!transition.ok && transition.reason === "feed_transition_unverified") {
       pendingTransition = {
         record_id: committed.record_id,
         progress: committed.progress,
@@ -901,35 +890,68 @@ export async function createDouyinRunner(options = {}) {
     } catch (error) {
       syncResult = { status: "runner_sync_error", reason: compactError(error) };
     }
-    if (transition.page?.stop_text_hit) {
-      return {
-        status: "stop_required",
-        reason: String(transition.page.stop_text_hit),
-        stop_phase: transition.ok ? "next_page_preflight" : "post_transition",
-        record_id: committed.record_id,
-        committed: true,
-        progress: transition.ok ? committed.progress : undefined,
-        upload: committed.upload,
-        sync: syncResult,
-        transition: {
-          ok: transition.ok,
-          method: transition.method || null,
-          from_aweme_id: transition.from_aweme_id,
-          to_aweme_id: transition.to_aweme_id,
-        },
-        page: pageSummary(transition.page),
-      };
-    }
     if (!transition.ok) {
+      const recovered = await recoverFeedAdvance({
+        tab,
+        plan: committed.advance_plan || planned.advance_plan,
+        initialPage,
+        latestPage: transition.page || latestPage,
+        readFacts,
+      });
+      if (recovered.ok) {
+        try {
+          const rerecorded = await recordTransition({
+            record_id: committed.record_id,
+            transition_ok: true,
+            scroll_delta: 1,
+            method: recovered.method || "FEED_RECOVER",
+            reason: null,
+            from_aweme_id: recovered.from_aweme_id,
+            to_aweme_id: recovered.to_aweme_id,
+            before_url: String(initialPage?.url || ""),
+            after_url: String(recovered.page?.url || ""),
+          });
+          if (rerecorded?.status !== "transition_recorded") {
+            throw new Error(`unexpected transition audit result: ${rerecorded?.status || "unknown"}`);
+          }
+        } catch (error) {
+          return {
+            status: "transition_audit_failed",
+            reason: compactError(error),
+            record_id: committed.record_id,
+            committed: true,
+            transition: {
+              from_aweme_id: recovered.from_aweme_id,
+              to_aweme_id: recovered.to_aweme_id,
+            },
+          };
+        }
+        return {
+          status: "advanced",
+          record_id: committed.record_id,
+          progress: committed.progress,
+          upload: committed.upload,
+          sync: syncResult,
+          duplicate_skips: duplicateSkips,
+          transition: {
+            ok: true,
+            method: recovered.method,
+            from_aweme_id: recovered.from_aweme_id,
+            to_aweme_id: recovered.to_aweme_id,
+          },
+          page: pageSummary(recovered.page),
+        };
+      }
       return {
-        status: "transition_failed",
-        reason: transition.reason,
+        status: "feed_stuck",
+        reason: recovered.reason || transition.reason,
         record_id: committed.record_id,
         committed: true,
         transition: {
-          from_aweme_id: transition.from_aweme_id,
-          to_aweme_id: transition.to_aweme_id,
+          from_aweme_id: recovered.from_aweme_id || transition.from_aweme_id,
+          to_aweme_id: recovered.to_aweme_id || transition.to_aweme_id,
         },
+        page: pageSummary(recovered.page || transition.page),
       };
     }
     return {

@@ -120,3 +120,18 @@ test("image-text posts always enter the immediate not-interested-or-skip lane", 
   assert.equal(result.needsCreatorProfile, false);
   assert.equal(result.level, "none");
 });
+
+test("live rooms enter the immediate swipe lane without not-interested planning", () => {
+  const result = classifyRecommendation({
+    title: "相机评测直播",
+    contentType: "live",
+    durationSeconds: 20,
+    likeCount: 5000,
+  }, broadProfile);
+
+  assert.equal(result.contentType, "live");
+  assert.equal(result.directSkip, true);
+  assert.equal(result.notInterestedEligible, false);
+  assert.equal(result.needsCreatorProfile, false);
+  assert.equal(result.level, "none");
+});

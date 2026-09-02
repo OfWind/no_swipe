@@ -33,9 +33,11 @@ export function classifyRecommendation(raw, profile) {
   const contentRules = profile.content_rules;
   const contentType = String(raw?.contentType || "video").toLowerCase();
   const imagePost = ["image", "image_text", "photo", "gallery"].includes(contentType);
+  const liveOrAd = contentType === "live" || contentType === "ad";
   const durationSeconds = Number(raw?.durationSeconds);
   const shortVideo = Boolean(
-    contentRules?.short_video_max_duration_seconds
+    !liveOrAd
+    && contentRules?.short_video_max_duration_seconds
     && Number.isFinite(durationSeconds)
     && durationSeconds > 0
     && durationSeconds <= Number(contentRules.short_video_max_duration_seconds),
@@ -47,7 +49,7 @@ export function classifyRecommendation(raw, profile) {
   const recentException = belowMinimum
     && contentRules?.below_minimum_behavior === "skip_unless_recent"
     && raw?.isRecentlyPublished === true;
-  const directSkip = Boolean(imagePost || shortVideo || (belowMinimum && !recentException));
+  const directSkip = Boolean(imagePost || shortVideo || liveOrAd || (belowMinimum && !recentException));
   const needsRecentEvidence = Boolean(
     belowMinimum
     && raw?.isRecentlyPublished !== true
@@ -74,7 +76,7 @@ export function classifyRecommendation(raw, profile) {
     ? priority.length > 0 || matched.length >= highMatchCount
     : true;
   const high = relevant && !directSkip && (creatorRule ? creatorHigh : keywordHigh);
-  const needsCreatorProfile = relevant && !imagePost && !shortVideo && (
+  const needsCreatorProfile = relevant && !imagePost && !shortVideo && !liveOrAd && (
     needsRecentEvidence
     || (creatorRule && (!followerEvidence || (creatorRule.require_stable_recent_likes && !stabilityEvidence)))
   );
@@ -90,10 +92,12 @@ export function classifyRecommendation(raw, profile) {
     shortVideo,
     recentException,
     needsCreatorProfile,
-    notInterestedEligible: (
-      imagePost
-      || (shortVideo && contentRules?.short_video_behavior === "not_interested_or_skip")
-    ) || negative.length > 0 || (selectionMode === "include" && !relevant),
+    notInterestedEligible: !liveOrAd && (
+      (
+        imagePost
+        || (shortVideo && contentRules?.short_video_behavior === "not_interested_or_skip")
+      ) || negative.length > 0 || (selectionMode === "include" && !relevant)
+    ),
   };
 }
 

@@ -70,11 +70,6 @@ export function runStep(input: {
   const authorization = (runConfig.authorization ?? {}) as Record<string, boolean>;
   const limits = (runConfig.interaction_policy ?? {}) as Record<string, { max_total?: number }>;
 
-  const stopText = typeof page.stop_text_hit === "string" && page.stop_text_hit ? page.stop_text_hit : null;
-  if (stopText) {
-    return { status: "stop_required", record_id: recordId, reason: stopText };
-  }
-
   const awemeId = String(page.aweme_id || "");
   const existingAweme = awemeId
     ? db.query("SELECT 1 AS found FROM observations WHERE session_id=? AND aweme_id=? LIMIT 1")
@@ -115,6 +110,7 @@ export function runStep(input: {
 
   const forceSkip = contentType === "live" || contentType === "ad" || classification.directSkip;
   const observedRelevant = classification.relevant && !forceSkip;
+  const immediateSwipe = forceSkip;
   const wrapper = loadQuota(db, sessionId, runConfig);
   const repeatHighCreatorCount = wrapper.creatorHighCounts[author] || 0;
   if (classification.high && author) wrapper.creatorHighCounts[author] = repeatHighCreatorCount + 1;
@@ -147,13 +143,15 @@ export function runStep(input: {
     follow: decision.plannedActions.follow === true
       && authorization.follow === true
       && wrapper.counters.follows < Number(limits.follow?.max_total ?? 0),
-    not_interested: decision.plannedActions.notInterested === true
+    not_interested: contentType !== "live"
+      && contentType !== "ad"
+      && decision.plannedActions.notInterested === true
       && authorization.not_interested === true
       && wrapper.counters.notInterested < Number(limits.not_interested?.max_total ?? 0),
   };
 
   const dwellRandom = () => (wrapper.policy as unknown as { rng: { next(): number } }).rng.next();
-  const dwellSeconds = classification.directSkip
+  const dwellSeconds = immediateSwipe
     ? 0
     : Number(chooseDwellSeconds(
       { ...raw, live: contentType === "live" || contentType === "ad" },

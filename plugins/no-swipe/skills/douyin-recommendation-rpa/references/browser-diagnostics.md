@@ -57,8 +57,9 @@ this read-only ladder.
 | Card reads succeed but the ID does not change after the initial ARROWDOWN and CUA verification stages | `transition_pending` | Keep `transition_ok=null`; call the same runner once more. It first accepts a delayed change, otherwise retries only the last transition control once without replanning. |
 | The same pending record remains unchanged after its single recovery retry | `feed_transition_unverified` | Preserve the last card and focus evidence. Do not issue further blind controls. A missing next-arrow is normal on this layout and is not a locator failure. |
 
-CAPTCHA, access restriction, account mismatch, login gates, or rate limits remain
-safety stops rather than browser bugs.
+CAPTCHA copy, access-restriction text, and rate-limit wording are overlay
+signals: dismiss, reopen the recommendation feed, and keep swiping. They are
+not Goal halts. Enter this diagnostic ladder only after `feed_stuck`.
 
 ## 3. Use Chrome DevTools MCP only as an external comparison
 

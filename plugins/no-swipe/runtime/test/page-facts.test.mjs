@@ -134,6 +134,57 @@ test("active gallery cards are classified as image_text without inventing a vide
   assert.equal(facts.current_position_seconds, null);
 });
 
+test("live chrome wins over a mounted video and stays ready without a duration", async () => {
+  const video = new FakeElement({
+    rect: { left: 80, top: 40, right: 980, bottom: 700, width: 900, height: 660 },
+  });
+  video.duration = Number.POSITIVE_INFINITY;
+  video.currentTime = 12;
+  video.paused = false;
+  const liveBadge = new FakeElement({
+    rect: { left: 40, top: 40, right: 120, bottom: 72, width: 80, height: 32 },
+    attrs: { "data-e2e": "feed-live" },
+  });
+  liveBadge.innerText = "直播中";
+  liveBadge.textContent = "直播中";
+  const active = new FakeElement({
+    rect: { left: 0, top: 0, right: 1000, bottom: 720, width: 1000, height: 720 },
+    className: "sliderVideo video_9",
+    one: {
+      '[data-e2e="feed-live"]': liveBadge,
+      video,
+    },
+    many: {
+      video: [video],
+      'a[href*="/user/"]': [],
+    },
+  });
+  const document = {
+    body: { innerText: "进入直播间" },
+    querySelector(selector) {
+      return selector === '[data-e2e="feed-active-video"]' ? active : null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '.sliderVideo, [class*="sliderVideo"], [class*="relatedUiAdapter"]') return [active];
+      if (selector === '.sliderVideo, [class*="sliderVideo"]') return [active];
+      if (selector === "video") return [video];
+      return [];
+    },
+  };
+  const source = await fs.readFile(FACTS_URL, "utf8");
+  const facts = vm.runInNewContext(`(${source})()`, {
+    document,
+    location: { href: "https://www.douyin.com/?recommend=1", pathname: "/" },
+    window: { innerWidth: 1280, innerHeight: 720 },
+  });
+
+  assert.equal(facts.surface, "active_video");
+  assert.equal(facts.aweme_id, "9");
+  assert.equal(facts.content_type, "live");
+  assert.equal(facts.media_state, "ready");
+  assert.equal(facts.duration_seconds, null);
+});
+
 test("a visible video wins over an earlier hidden video while the slide is still mounting", async () => {
   const hiddenVideo = new FakeElement({
     rect: { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 },

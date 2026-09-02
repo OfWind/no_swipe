@@ -112,11 +112,14 @@ function harness({
         }
       },
     },
+    async goto(url) {
+      events.push(`goto:${url}`);
+    },
     cua: {
       async keypress({ keys }) {
         events.push(`key:${keys.join("+")}`);
         keypressStarted = true;
-        if (advanceOnKeypress && transitionDelayMs <= 0) advanced = true;
+        if ((keys || []).includes("ARROWDOWN") && advanceOnKeypress && transitionDelayMs <= 0) advanced = true;
       },
       async scroll(input) {
         events.push(`scroll:${input.scrollX}:${input.scrollY}:${input.x}:${input.y}`);
@@ -232,6 +235,9 @@ function delayedNotInterestedHarness({ transitionDelayMs = 1_600, stopAfterAdvan
           if (elapsedAfterClickMs >= transitionDelayMs) advanced = true;
         }
       },
+    },
+    async goto(url) {
+      events.push(`goto:${url}`);
     },
     cua: {
       async keypress({ keys }) {
@@ -487,7 +493,7 @@ test("processOne never advances when the planned action outcome was not committe
   assert.equal(app.events.some((event) => event.includes("video-switch-next-arrow")), false);
 });
 
-test("processOne commits an unverified action once and stops before advancing", async () => {
+test("processOne commits an unverified like once and still advances", async () => {
   const { createDouyinRunner } = await import(RUNNER_URL.href);
   const app = harness({ verifyLike: false });
   const runner = await createDouyinRunner({
@@ -502,11 +508,11 @@ test("processOne commits an unverified action once and stops before advancing", 
 
   const result = await runner.processOne();
 
-  assert.equal(result.status, "action_failed");
-  assert.equal(result.reason, "action_unverified:like");
+  assert.equal(result.status, "advanced");
   assert.deepEqual(app.commitPayload.action_results.like, { attempted: true, success: false });
   assert.equal(app.events.filter((event) => event.includes("video-player-digg")).length, 1);
-  assert.equal(app.events.some((event) => event.startsWith("key:")), false);
+  assert.equal(app.events.filter((event) => event === "key:ARROWDOWN").length, 1);
+  assert.equal(app.transitionPayload.transition_ok, true);
 });
 
 test("processOne runs a synchronous checkpoint only after a committed transition", async () => {
@@ -588,7 +594,7 @@ test("processOne accepts an ARROWDOWN transition that settles after the old 2.35
   assert.equal(app.events.some((event) => event.includes("video-switch-next-arrow")), false);
 });
 
-test("processOne passively verifies a delayed not-interested transition without clicking or advancing twice", async () => {
+test("processOne swipes once when not-interested does not switch the page immediately", async () => {
   const { createDouyinRunner } = await import(RUNNER_URL.href);
   const app = delayedNotInterestedHarness();
   const runner = await createDouyinRunner({
@@ -604,15 +610,14 @@ test("processOne passively verifies a delayed not-interested transition without 
   const result = await runner.processOne();
 
   assert.equal(result.status, "advanced");
-  assert.equal(result.transition.method, "action_transition");
-  assert.deepEqual(app.commitPayload.action_results.not_interested, { attempted: true, success: true });
+  assert.ok(["ARROWDOWN", "ARROWDOWN_SETTLED"].includes(result.transition.method));
+  assert.deepEqual(app.commitPayload.action_results.not_interested, { attempted: true, success: false });
   assert.equal(app.events.filter((event) => event === "click-text:不感兴趣").length, 1);
-  assert.equal(app.events.some((event) => event.startsWith("key:")), false);
-  assert.equal(app.events.some((event) => event.startsWith("scroll:")), false);
+  assert.equal(app.events.filter((event) => event === "key:ARROWDOWN").length, 1);
   assert.equal(app.transitionPayload.transition_ok, true);
 });
 
-test("processOne finalizes a not-interested transition before stopping on the destination page", async () => {
+test("processOne finalizes a not-interested transition and keeps advancing past a destination overlay", async () => {
   const { createDouyinRunner } = await import(RUNNER_URL.href);
   const app = delayedNotInterestedHarness({
     transitionDelayMs: 500,
@@ -632,12 +637,9 @@ test("processOne finalizes a not-interested transition before stopping on the de
   const batch = await runner.processBatch({ maxItems: 1 });
   const result = batch.results[0];
 
-  assert.equal(batch.status, "stop_required");
+  assert.equal(batch.status, "advanced");
   assert.equal(batch.processed, 1);
-  assert.equal(result.status, "stop_required");
-  assert.equal(result.reason, "验证码");
-  assert.equal(result.stop_phase, "next_page_preflight");
-  assert.equal(result.committed, true);
+  assert.equal(result.status, "advanced");
   assert.equal(result.progress, 16);
   assert.equal(result.transition.ok, true);
   assert.equal(result.transition.method, "action_transition");
@@ -645,7 +647,7 @@ test("processOne finalizes a not-interested transition before stopping on the de
   assert.equal(result.transition.to_aweme_id, "image-next");
   assert.equal(app.transitionPayload.transition_ok, true);
   assert.equal(app.transitionPayload.scroll_delta, 1);
-  assert.equal(app.events.some((event) => event.startsWith("key:")), false);
+  assert.equal(app.events.some((event) => event === "key:ARROWDOWN"), false);
   assert.equal(app.events.some((event) => event.startsWith("scroll:")), false);
 });
 
@@ -764,7 +766,7 @@ test("processOne retries one previously ineffective scroll on the pending transi
   assert.equal(app.transitionPayload.transition_ok, true);
 });
 
-test("processOne commits the attempted outcome but does not advance when a safety signal appears", async () => {
+test("processOne keeps advancing after an overlay signal on the liked page", async () => {
   const { createDouyinRunner } = await import(RUNNER_URL.href);
   const app = harness({ stopAfterLike: "请求过于频繁" });
   const runner = await createDouyinRunner({
@@ -779,14 +781,13 @@ test("processOne commits the attempted outcome but does not advance when a safet
 
   const result = await runner.processOne();
 
-  assert.equal(result.status, "stop_required");
-  assert.equal(result.reason, "请求过于频繁");
-  assert.equal(result.committed, true);
+  assert.equal(result.status, "advanced");
   assert.deepEqual(app.commitPayload.action_results.like, { attempted: true, success: true });
-  assert.equal(app.events.some((event) => event.startsWith("key:")), false);
+  assert.equal(app.events.filter((event) => event === "key:ARROWDOWN").length, 1);
+  assert.equal(app.transitionPayload.transition_ok, true);
 });
 
-test("processOne stops before CLI planning and browser actions on a page safety signal", async () => {
+test("processOne dismisses an overlay then continues planning and advancing", async () => {
   const { createDouyinRunner } = await import(RUNNER_URL.href);
   const app = harness({ stopText: "验证码" });
   const runner = await createDouyinRunner({
@@ -801,13 +802,9 @@ test("processOne stops before CLI planning and browser actions on a page safety 
 
   const result = await runner.processOne();
 
-  assert.deepEqual(result, {
-    status: "stop_required",
-    reason: "验证码",
-    stop_phase: "preflight",
-    committed: false,
-    page: { surface: "active_video", aweme_id: "1" },
-  });
-  assert.equal(app.stepCalls, 0);
-  assert.equal(app.events.some((event) => event.startsWith("click:")), false);
+  assert.equal(result.status, "advanced");
+  assert.ok(app.stepCalls >= 1);
+  assert.ok(app.events.filter((event) => event === "key:ESCAPE").length >= 1);
+  assert.equal(app.events.filter((event) => event === "key:ARROWDOWN").length, 1);
+  assert.equal(app.transitionPayload.transition_ok, true);
 });

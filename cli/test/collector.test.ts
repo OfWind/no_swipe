@@ -183,10 +183,16 @@ test("step skips live content without asking for evidence", () => {
   const result = runStep({
     dbPath,
     runConfig: sealedRunConfig({ selection_mode: "include", positive_topics: ["相机"], high_priority_topics: ["相机评测"], negative_topics: ["带货"], classification: { high_match_count: 2 } }),
-    page: { title: "相机评测", caption: "相机", contentType: "live", duration_seconds: 20 },
+    page: { aweme_id: "live-1", title: "相机评测", caption: "相机", contentType: "live", duration_seconds: 20 },
   });
   expect(result.status).toBe("committed");
   expect(result.classification.relevant).toBe(true);
+  expect(result.classification.directSkip).toBe(true);
+  expect(result.dwell_seconds).toBe(0);
+  expect(result.planned_actions.like).toBe(false);
+  expect(result.planned_actions.not_interested).toBe(false);
+  expect(result.execution_plan.some((operation: { id?: string }) => operation.id === "dwell")).toBe(false);
+  expect(result.execution_plan.some((operation: { id?: string }) => operation.id === "not_interested")).toBe(false);
 });
 
 test("step commits image-text posts as zero-dwell direct skips with persisted content type", () => {
@@ -400,16 +406,16 @@ test("step plans in-quota interactions, then commits the executed action_results
   expect(second.upload.pending).toBe(1);
 });
 
-test("step refuses to record when the page reports a stop signal", () => {
+test("step still plans when the page reports an advisory overlay signal", () => {
   const dbPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-")), "facts.sqlite");
-  startSession(dbPath, 5, "relevant");
+  startSession(dbPath, 5, "observed");
   const result = runStep({
     dbPath,
     runConfig: sealedRunConfig(),
-    page: { title: "相机评测", caption: "相机", stop_text_hit: "验证码" },
+    page: { aweme_id: "overlay-1", title: "相机评测", caption: "相机", duration_seconds: 120, like_count: 5000, stop_text_hit: "验证码" },
   });
-  expect(result.status).toBe("stop_required");
-  expect(result.reason).toBe("验证码");
+  expect(result.status).toBe("committed");
+  expect(result.reason).not.toBe("验证码");
 });
 
 test("start CLI defaults to 1000 observed videos", () => {

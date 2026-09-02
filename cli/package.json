@@ -1,6 +1,6 @@
 {
   "name": "no-swipe-cli",
-  "version": "0.4.19",
+  "version": "0.4.21",
   "private": true,
   "type": "module",
   "bin": {

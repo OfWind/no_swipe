@@ -130,11 +130,11 @@ The browser hot path must not depend on remote upload completion. The upload pat
 
 ### 6. Stop, classify, and preserve evidence on failure
 
-On any browser, runner, persistence, sync, or safety failure:
+On `feed_stuck`, persistence, or sync failure:
 
-1. stop feed actions immediately;
-2. keep the same browser binding and tab;
-3. do not retry the failed control, navigate blindly, finish an incomplete session, or create a replacement database;
+1. keep the same browser binding and tab;
+2. do not re-click a failed like/favorite control;
+3. overlay and unverified interactions are not this class of failure — keep swiping;
 4. force a sync checkpoint only when the transition audit is settled and the runtime skill permits it;
 5. capture the smallest evidence set needed to classify the layer.
 

@@ -194,7 +194,21 @@
     .filter((src) => /tplv-dy-aweme-images|\/aweme-images\//.test(src))
     .map((src) => src.split("?", 1)[0]);
   const galleryImageCount = new Set(galleryImagePaths).size;
-  const contentType = video ? "video" : (galleryImageCount > 0 ? "image_text" : "unknown");
+  // Live chrome must win over a mounted <video>: recommendation-feed live
+  // rooms reuse the player but should never enter watch/like planning.
+  const liveByMarker = Boolean(
+    q('[data-e2e="feed-live"]')
+    || q('[data-e2e^="feed-live"]')
+  );
+  const liveByHref = Array.from(active.querySelectorAll("a")).some((node) => (
+    /live\.douyin\.com|\/live\//.test(String(node.href || node.getAttribute?.("href") || ""))
+  ));
+  const liveByLabel = Array.from(active.querySelectorAll('button, a, [role="button"], span')).some((node) => {
+    const label = text(node).replace(/\s+/g, "");
+    return label === "进入直播间" || label === "直播中" || label === "点击进入直播间";
+  });
+  const live = liveByMarker || liveByHref || liveByLabel;
+  const contentType = live ? "live" : (video ? "video" : (galleryImageCount > 0 ? "image_text" : "unknown"));
   const descEl = q('[data-e2e="video-desc"]');
   const infoText = text(q('[data-e2e="video-info"]'));
   const publishedMatch = infoText.match(/·\s*([^\n]+)/);

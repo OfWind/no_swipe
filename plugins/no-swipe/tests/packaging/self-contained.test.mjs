@@ -273,6 +273,8 @@ test("page-fact extractor ships as an evaluate-ready adapter with stable selecto
   assert.ok(extractor.includes("window.innerWidth"), "slide visibility must be clipped to the viewport width");
   assert.ok(extractor.includes("window.innerHeight"), "slide visibility must be clipped to the viewport height");
   assert.ok(extractor.includes('content_type: contentType'), "page facts must report video versus image-text content");
+  assert.ok(extractor.includes('feed-live'), "page facts must recognize live-room chrome");
+  assert.ok(extractor.includes("进入直播间"), "page facts must recognize the live-entry control");
   assert.ok(extractor.includes("tplv-dy-aweme-images"), "page facts must recognize Douyin gallery resources");
   assert.ok(extractor.includes("gallery_image_count"), "page facts must report deduplicated gallery image count");
 });

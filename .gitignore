@@ -14,3 +14,5 @@ node_modules/
 cli/dist/
 __pycache__/
 *.pyc
+
+plugins/no-swipe/skills/douyin-recommendation-rpa/SKILL.zh-CN.md

@@ -1,6 +1,6 @@
 {
   "name": "no-swipe",
-  "version": "0.4.19+codex.20260902162635",
+  "version": "0.4.21+codex.20260902173718",
   "description": "Device-paired Douyin recommendation-feed RPA that uploads observations to No Swipe Supabase.",
   "author": {
     "name": "No Swipe Team"

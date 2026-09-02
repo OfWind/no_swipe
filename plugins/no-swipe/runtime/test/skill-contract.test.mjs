@@ -109,7 +109,7 @@ test("skill keeps routine feed progress compact and product-facing", async () =>
   assert.match(progressSection, /Do not announce or explain a run mode to the user/);
   assert.match(progressSection, /Every 5 verified observations/);
   assert.match(progressSection, /no later than 60 seconds/);
-  assert.match(progressSection, /Increment user-visible progress only after `status=advanced`, or after `status=stop_required`.*`stop_phase=next_page_preflight`.*`transition\.ok=true`/s);
+  assert.match(progressSection, /Increment user-visible progress only after `status=advanced`/);
   assert.match(progressSection, /Only a server ACK may increase the uploaded count/);
   assert.match(progressSection, /进度 <已完成>\/<目标>/);
   assert.match(progressSection, /已持久化 <已完成>/);
@@ -117,6 +117,7 @@ test("skill keeps routine feed progress compact and product-facing", async () =>
   assert.match(progressSection, /待传 <待传>、死信 <死信>/);
   assert.match(progressSection, /`status=media_loading`.*without a chat update/s);
   assert.match(progressSection, /`status=transition_pending` with `retryable=true`.*without a chat update/s);
+  assert.match(progressSection, /Only `status=feed_stuck` after backoff is a halt/);
   assert.match(progressSection, /Do not send per-item progress messages/);
   assert.match(progressSection, /pending=0.*dead=0.*server ACK/s);
   assert.doesNotMatch(progressSection, /诊断模式|验收模式|diagnostic mode|acceptance mode/i);
@@ -176,6 +177,8 @@ test("skill prioritizes the confirmed 60-second immediate lane", async () => {
   assert.match(skill, /Do not wait, visit the creator homepage, or allocate like/);
   assert.match(skill, /image-text\/gallery post enters the same zero-dwell immediate lane/i);
   assert.match(skill, /Never invent a video duration for image content/i);
+  assert.match(skill, /live room.*zero-dwell immediate lane/i);
+  assert.match(skill, /Swipe immediately/);
 });
 
 test("skill restores the live-tab JS runner as the only per-item browser state machine", async () => {
@@ -211,10 +214,11 @@ test("skill restores the live-tab JS runner as the only per-item browser state m
   assert.match(skill, /eight consecutive duplicate transitions/);
   assert.match(skill, /status=transition_pending/);
   assert.match(skill, /retries only the last transition control once/);
-  assert.match(skill, /stop_evidence\.source=visible_blocker/);
-  assert.match(skill, /Matching words in whole-page text.*are not safety evidence/s);
-  assert.match(skill, /`stop_phase=next_page_preflight`.*`transition\.ok=true`/s);
-  assert.match(skill, /Preserve the runner result fields `committed`, `stop_phase`, `progress`, `transition`/);
+  assert.match(skill, /advisory overlay signals, never a reason to halt/);
+  assert.match(skill, /Matching words in whole-page text.*are not blockers/s);
+  assert.match(skill, /status=feed_stuck/);
+  assert.match(skill, /Unverified `like` \/ `favorite` \/ `follow` \/ `comment`/);
+  assert.match(skill, /Preserve the runner result fields `committed`, `progress`, `transition`/);
   assert.doesNotMatch(skill, /video-player-digg/);
   assert.doesNotMatch(skill, /tab\.cua\.keypress\(\{ keys: \["ARROWDOWN"\] \}\)/);
 });
@@ -281,11 +285,12 @@ test("skill keeps Douyin browser actions SPA-safe, bounded, and on one controlle
   }
 });
 
-test("skill routes browser anomalies to same-surface diagnostics", async () => {
+test("skill routes feed_stuck to diagnostics and keeps swiping through unverified likes", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
   assert.match(skill, /references\/browser-diagnostics\.md/);
-  assert.match(skill, /bounded same-surface ladder/);
+  assert.match(skill, /only after `feed_stuck`/);
+  assert.match(skill, /Do not enter diagnostics for unverified interactions/);
 });
