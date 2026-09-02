@@ -24,8 +24,10 @@ Run the scenarios affected by the change. A formal release candidate covers all 
 
 ### Packaging and runtime identity
 
+- Every new Codex task opens `https://www.douyin.com/user/self` as its first Douyin identity action while the workbench stays in a separate tab; a same-task resume reuses the settled identity unless visible evidence contradicts it.
+- The self page receives at most two bounded attempts. A blocker stops the run; a blocker-free missing ID may fall back only to one unique exact visible nickname match.
 - Source, staged candidate, and installed cache contain the same shipped files.
-- Plugin build ID is unique for the file set; base plugin and CLI versions are paired.
+- Semantic version and plugin build ID are unique for every changed shipped file set; base plugin and CLI versions are paired.
 - The running task imports the exact candidate root under test.
 - Browser-hosted modules work when `process` is absent.
 - A Skill-only candidate does not silently replace the CLI binary; a CLI candidate proves the binary SHA-256.

@@ -44,6 +44,28 @@ test("cloud config works without a plugin checkout", () => {
   else process.env.NO_SWIPE_SUPABASE_CONFIG = previous;
 });
 
+test("cached cloud endpoints cannot override the running binary client identity", () => {
+  const previous = process.env.NO_SWIPE_SUPABASE_CONFIG;
+  const configPath = path.join(mkdtempSync(path.join(tmpdir(), "no-swipe-cloud-identity-")), "supabase.json");
+  writeFileSync(configPath, JSON.stringify({
+    url: "https://example.supabase.co",
+    publishable_key: "sb_publishable_test",
+    contract_version: 1,
+    plugin_version: "0.0.1",
+  }));
+  process.env.NO_SWIPE_SUPABASE_CONFIG = configPath;
+  try {
+    const config = loadCloudConfig();
+    expect(config.url).toBe("https://example.supabase.co");
+    expect(config.publishable_key).toBe("sb_publishable_test");
+    expect(config.contract_version).toBe(2);
+    expect(config.plugin_version).not.toBe("0.0.1");
+  } finally {
+    if (previous === undefined) delete process.env.NO_SWIPE_SUPABASE_CONFIG;
+    else process.env.NO_SWIPE_SUPABASE_CONFIG = previous;
+  }
+});
+
 test("config materialize reads plugin files via NO_SWIPE_PLUGIN_ROOT", async () => {
   const previous = process.env.NO_SWIPE_PLUGIN_ROOT;
   const pluginRoot = path.resolve(import.meta.dir, "../../plugins/no-swipe");

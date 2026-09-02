@@ -573,10 +573,27 @@ export async function readAccountIdentity(accountRef, { dataDir = ".no-swipe" } 
 
 export async function recordAccountIdentity(accountRef, nickname, { dataDir = ".no-swipe" } = {}) {
   if (typeof nickname !== "string" || nickname.trim() === "") throw new Error("nickname 必须是非空字符串");
+  const normalizedNickname = nickname.trim();
+  const verifiedAt = new Date().toISOString();
+  const previous = await readAccountIdentity(accountRef, { dataDir });
+  const nicknameHistory = Array.isArray(previous?.nickname_history)
+    ? previous.nickname_history.filter((entry) => (
+      entry
+      && typeof entry.douyin_nickname === "string"
+      && typeof entry.verified_at === "string"
+    ))
+    : [];
+  if (previous?.douyin_nickname && previous.douyin_nickname !== normalizedNickname) {
+    nicknameHistory.push({
+      douyin_nickname: previous.douyin_nickname,
+      verified_at: typeof previous.verified_at === "string" ? previous.verified_at : verifiedAt,
+    });
+  }
   const value = {
     account_ref: accountRef,
-    douyin_nickname: nickname.trim(),
-    verified_at: new Date().toISOString(),
+    douyin_nickname: normalizedNickname,
+    verified_at: verifiedAt,
+    nickname_history: nicknameHistory,
   };
   await writeJsonAtomic(path.join(accountDirectory(dataDir, accountRef), "identity.json"), value);
   return value;

@@ -28,7 +28,7 @@ Keep these boundaries explicit:
 - Preserve unrelated worktree changes and report them separately.
 - Never expose cookies, tokens, authorization headers, OTPs, device codes, or reusable browser-session material.
 - A live test reuses an already confirmed test RunConfig. If none exists, stop at the browser boundary and use the sibling runtime skill's compact confirmation flow.
-- For every live test, verify the visible Douyin account identity from the current page, account menu, or avatar area; never open the logged-in account's own profile or another creator's homepage.
+- In every new Codex task used for a live test, open `https://www.douyin.com/user/self` as the first Douyin identity action in a tab separate from the workbench. Retry the fixed self page once when its first bounded read does not expose the Douyin ID. After both blocker-free attempts, fall back only to an exact nickname from the current Douyin page, account menu, or logged-in-account avatar that matches exactly one startup account. A login, CAPTCHA, verification, access-limit, mismatch, or ambiguous nickname stops the test before feed actions. This is an identity-only self page; never open another creator's homepage.
 - Commit, push, upload, deploy, release, promote, and destructive cleanup require the user's explicit request for that action.
 
 ## The closed loop
@@ -47,7 +47,7 @@ Before changing code, record:
 - required browser modes;
 - test account identity, confirmed RunConfig hash, test database, and starting SQLite/outbox counts when live testing is authorized.
 
-Use one immutable candidate build ID per shipped file set. Any source, Skill, reference, script, fixture, package metadata, or binary change invalidates the prior candidate result. Stamp a new `x.y.z+codex.<timestamp>` build ID, reinstall, and reopen the cycle record.
+Use one immutable semantic version and candidate build ID per shipped file set. Any source, Skill, reference, script, fixture, package metadata, or binary change invalidates the prior candidate result. Every shipped-file change increments the semantic version with `./scripts/set-version.mjs <next-x.y.z>` and receives a fresh `x.y.z+codex.<timestamp>` build ID before reinstalling and reopening the cycle record. Build metadata alone is not a version bump, and an earlier semantic version must never identify changed bytes or instructions. Reinstalling or promoting the exact unchanged file set may retain its version and build ID.
 
 Treat these as separate facts:
 
@@ -155,7 +155,7 @@ Do not label a browser-control failure as Douyin risk control without an on-page
 
 Fix the root cause in the authoritative repository, add or improve the regression test, and rerun every lower gate affected by the change. Then:
 
-1. stamp a new candidate build ID;
+1. increment the semantic version and stamp its new candidate build ID;
 2. restage and reinstall the complete plugin;
 3. rerun the candidate verifier;
 4. rerun the original minimal failing case;

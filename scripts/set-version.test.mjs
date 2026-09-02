@@ -107,6 +107,18 @@ test("setVersion validates every target before writing", async () => {
   }
 });
 
+test("setVersion refuses to restamp the current semantic version", async () => {
+  const fixture = await createFixture({ version: "0.4.14" });
+  try {
+    assert.throws(
+      () => setVersion("0.4.14", { root: fixture.root, buildStamp: "20260902150000" }),
+      /already current.*increment the semantic version/i,
+    );
+  } finally {
+    await fs.rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("createBuildStamp is stable for a supplied local date", () => {
   assert.equal(createBuildStamp(new Date(2026, 8, 1, 21, 2, 3)), "20260901210203");
 });

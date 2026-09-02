@@ -18,7 +18,7 @@ const BAKED: CloudConfig = {
   publishable_key: "sb_publishable_Jm6gViTHXW0c4hEmX26lqw_xfcLXP78",
   edge_function: "ingest",
   contract_version: 2,
-  plugin_version: "0.4.14",
+  plugin_version: "0.4.17",
   workbench_url: "https://whislte.cc.cd",
   releases_base_url: "https://kigrzhmcphrkqtuqthwb.supabase.co/storage/v1/object/public/no-swipe-releases",
 };
@@ -41,8 +41,11 @@ export function loadCloudConfig(): CloudConfig {
     url,
     publishable_key,
     edge_function: String(raw.edge_function || BAKED.edge_function),
-    contract_version: Number(raw.contract_version || BAKED.contract_version),
-    plugin_version: String(raw.plugin_version || BAKED.plugin_version),
+    // These fields identify the running client contract and binary. Endpoint
+    // configuration may persist across upgrades, so it must not make a new
+    // binary report an older cached client identity.
+    contract_version: BAKED.contract_version,
+    plugin_version: BAKED.plugin_version,
     workbench_url: String(raw.workbench_url || process.env.NO_SWIPE_WORKBENCH_URL || BAKED.workbench_url).replace(/\/$/, ""),
     releases_base_url: String(raw.releases_base_url || BAKED.releases_base_url),
   };

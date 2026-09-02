@@ -151,6 +151,10 @@ export function setVersion(version, { root = DEFAULT_ROOT, buildStamp = createBu
   const originals = readSources(root);
   const parsed = parseSources(originals);
 
+  if (parsed.cliVersion.version === version) {
+    throw new Error(`${version} is already current; increment the semantic version for every changed file set`);
+  }
+
   parsed.marketplace.version = version;
   parsed.marketplacePlugin.version = version;
   parsed.pluginManifest.version = `${version}+codex.${buildStamp}`;

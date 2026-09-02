@@ -20,6 +20,10 @@ test("release-loop skill separates maintenance from ordinary collection and pres
   assert.match(skill, /request only to test or diagnose[\s\S]*does not authorize a source fix/i);
   assert.match(skill, /Commit, push, upload, deploy, release, promote[\s\S]*explicit request/i);
   assert.match(skill, /Never edit `~\/\.codex\/plugins\/cache`/);
+  assert.match(skill, /every new Codex task.*https:\/\/www\.douyin\.com\/user\/self/smi);
+  assert.match(skill, /retry.*once.*exact nickname.*matches exactly one/smi);
+  assert.match(skill, /never open another creator's homepage/i);
+  assert.doesNotMatch(skill, /never open the logged-in account's own profile/i);
 });
 
 test("release-loop skill closes every iteration on a new immutable candidate", async () => {
@@ -34,6 +38,8 @@ test("release-loop skill closes every iteration on a new immutable candidate", a
   assert.ok(baseline >= 0 && baseline < reproduce && reproduce < install);
   assert.ok(install < live && live < replay && replay < decide);
   assert.match(skill, /Any source, Skill, reference, script, fixture, package metadata, or binary change invalidates the prior candidate result/);
+  assert.match(skill, /Every shipped-file change increments the semantic version/);
+  assert.match(skill, /Build metadata alone is not a version bump/);
   assert.match(skill, /Never carry a pass from an older build ID into the new cycle/);
   assert.match(skill, /1-item, 10-item, and full target gates/);
 });

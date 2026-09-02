@@ -6,19 +6,19 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-test("skill gates every run on device pairing before browser access", async () => {
+test("skill gates binding and feed execution on device pairing while allowing self-page preflight", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
   const authSection = skill.indexOf("## 0. One startup call, then authorize only if needed");
   const upCall = skill.indexOf("chains `no-swipe up`");
-  const browserSection = skill.indexOf("## 1. Resolve the logged-in account after upload authorization");
+  const browserSection = skill.indexOf("## 1. Resolve the logged-in account");
 
   assert.ok(authSection >= 0, "runtime auth gate is required");
   assert.ok(authSection < upCall && upCall < browserSection);
   assert.match(skill, /do not run separate `auth status` or `config profile list` calls/);
-  assert.match(skill, /description:.*Verify No Swipe upload authorization before every browser action/);
+  assert.match(skill, /description:.*open https:\/\/www\.douyin\.com\/user\/self as the first Douyin identity action/);
   assert.match(skill, /mandatory for every new or resumed run/);
   assert.match(skill, /no-swipe auth login/);
   assert.match(skill, /pair_url/);
@@ -30,7 +30,8 @@ test("skill gates every run on device pairing before browser access", async () =
   assert.match(skill, /Do not tell the user to re-enable the plugin/);
   assert.match(skill, /new Codex task/);
   assert.doesNotMatch(skill, /codex plugin marketplace upgrade|codex plugin add /);
-  assert.match(skill, /Stop before all Douyin, collector, Goal, and upload actions/);
+  assert.match(skill, /may open and read.*\/user\/self.*while bootstrap.*authorization completes/smi);
+  assert.match(skill, /Require `auth\.connected=true` before resolving or recording the binding.*recommendation-feed action/smi);
   assert.match(skill, /Accept any email that can receive and verify the No Swipe OTP/);
   assert.match(skill, /NO_SWIPE_PLUGIN_ROOT/);
   assert.match(skill, /SmartScreen or 360/);
@@ -189,18 +190,33 @@ test("skill restores the live-tab JS runner as the only per-item browser state m
   assert.doesNotMatch(skill, /tab\.cua\.keypress\(\{ keys: \["ARROWDOWN"\] \}\)/);
 });
 
-test("skill resolves identity on the current surface without opening any profile", async () => {
+test("skill identifies every new task from the canonical self page with one bounded retry", async () => {
   const skill = await fs.readFile(
     path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"),
     "utf8",
   );
-  assert.match(skill, /current Douyin page, account menu, or avatar area/i);
-  assert.match(skill, /never open the logged-in account's own profile or another creator's homepage/i);
-  assert.match(skill, /never open a creator homepage/i);
-  assert.match(skill, /If the Douyin ID is not reliably visible.*stop before feed actions/s);
-  assert.doesNotMatch(skill, /https:\/\/www\.douyin\.com\/user\/self|\/user\/self|canonical profile URL/i);
+  const identityStart = skill.indexOf("## 1. Resolve the logged-in account");
+  const selfStart = skill.indexOf("https://www.douyin.com/user/self", identityStart);
+  const currentSurfaceFallback = skill.indexOf("exact nickname", selfStart);
+
+  assert.ok(identityStart >= 0 && identityStart < selfStart && selfStart < currentSurfaceFallback);
+  assert.match(skill, /every new Codex task.*https:\/\/www\.douyin\.com\/user\/self/smi);
+  assert.match(skill, /first Douyin identity action/i);
+  assert.match(skill, /retry.*once.*two total attempts/smi);
+  assert.match(skill, /both attempts.*exact match.*exactly one account/smi);
+  assert.match(skill, /no fuzzy.*nickname/i);
+  assert.match(skill, /login gate.*verification.*access-limit.*stop.*without.*nickname fallback/smi);
+  assert.match(skill, /same Codex task.*resume.*does not repeat.*\/user\/self/smi);
+  assert.match(skill, /new Codex task.*repeat.*identity/smi);
+  assert.match(skill, /mid-session.*account.*mismatch.*repeat.*identity/smi);
+  assert.match(skill, /self-referential.*not.*creator profile/smi);
+  assert.match(skill, /`profile_visit=false`.*does not apply.*identity/smi);
+  assert.match(skill, /never open another creator's homepage/i);
+  assert.doesNotMatch(skill, /never open the logged-in account's own profile/i);
   assert.match(skill, /no-swipe config profile identity/);
-  assert.match(skill, /means the Douyin account was switched/);
+  assert.match(skill, /same Douyin ID.*nickname.*automatically.*latest/smi);
+  assert.match(skill, /new Douyin ID.*sibling account/smi);
+  assert.match(skill, /workbench.*\/user\/self.*parallel.*separate.*tabs/smi);
   assert.match(skill, /runner reads .*douyin_page_facts\.js.*invokes `no-swipe step` internally/i);
   assert.match(skill, /douyin_page_facts\.js/);
   assert.match(skill, /no full-page DOM snapshots, no selector archaeology, and no reading CLI source code/);

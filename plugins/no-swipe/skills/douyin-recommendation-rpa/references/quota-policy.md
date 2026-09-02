@@ -31,7 +31,7 @@ Contract 1.0.0 中：
 - 评论候选来自 high 内容；
 - 关注按唯一创作者计数，来自 high、达到重复出现门槛、推荐流显示关注入口且尚未关注的创作者；
 - 不感兴趣候选来自 none 内容；
-- profile sampling 已退役；`profile_visit` / `profile_sampling` 仅保留旧配置审计语义，配额映射和每条 `plannedActions.profileVisit` 固定为 false/0，runner 不进入任何主页。
+- profile sampling 已退役；`profile_visit` / `profile_sampling` 仅保留推荐作者主页访问的旧配置审计语义，配额映射和每条 `plannedActions.profileVisit` 固定为 false/0，runner 不进入推荐作者主页。每个新 Codex 任务在 runner 外打开 `https://www.douyin.com/user/self` 核验本人账号，这项身份动作不属于 profile sampling。
 
 ## 配额随机
 

@@ -21,15 +21,16 @@ Do not use one browser as an automatic fallback for the other. An external Chrom
 
 ## Live-test preflight
 
-Before the first browser action:
+Before the first feed action:
 
 1. run the exact candidate bootstrap and require `auth.connected=true`;
 2. verify machine-level outbox recovery is settled or explicitly preserve the remaining rows;
-3. resolve the current logged-in account from the visible current page, account menu, or avatar area without opening any profile;
-4. require the expected nickname and Douyin ID;
-5. validate a confirmed all-zero-interaction RunConfig and its hash;
-6. bind the test to one browser mode, one tab, one database, and one Goal;
-7. record the current candidate build ID and CLI binary hash.
+3. in every new Codex task, open `https://www.douyin.com/user/self` as the first Douyin identity action in the dedicated Douyin tab; the workbench may open concurrently in its separate tab;
+4. read the visible nickname and Douyin ID, retry the same fixed self page once when the ID is unavailable, and stop immediately on a login, CAPTCHA, verification, or access-limit blocker;
+5. after two blocker-free attempts without an ID, accept only an exact nickname that uniquely matches one startup account; never substitute a feed author's profile or a fuzzy nickname match;
+6. validate a confirmed all-zero-interaction RunConfig and its hash;
+7. bind the test to one browser mode, one tab, one database, and one Goal;
+8. record the current candidate build ID and CLI binary hash.
 
 Stop before feed actions on account mismatch, login gate, CAPTCHA, on-page access limit, unreliable page facts, stale/detached tab, or uncertain control ownership.
 

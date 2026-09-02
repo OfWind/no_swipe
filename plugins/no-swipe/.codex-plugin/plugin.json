@@ -1,6 +1,6 @@
 {
   "name": "no-swipe",
-  "version": "0.4.14+codex.20260902094927",
+  "version": "0.4.17+codex.20260902155718",
   "description": "Device-paired Douyin recommendation-feed RPA that uploads observations to No Swipe Supabase.",
   "author": {
     "name": "No Swipe Team"
@@ -10,7 +10,7 @@
   "interface": {
     "displayName": "No Swipe",
     "shortDescription": "一键确认账号画像与推荐流策略。",
-    "longDescription": "先完成本机采集授权，再从当前抖音页面、账号菜单或头像区域读取可见账号信息；全程不打开自己或作者的创作者主页。确认画像与运行参数后创建持续目标并连续执行。",
+    "longDescription": "每个新任务先在独立抖音标签页打开 https://www.douyin.com/user/self 核验本人账号，同时在另一标签页完成 No Swipe 授权；本人页最多尝试两次，再按当前页面可见昵称唯一精确匹配，始终不进入推荐作者主页。确认画像与运行参数后创建持续目标并连续执行。",
     "developerName": "No Swipe Team",
     "category": "Productivity",
     "capabilities": [
@@ -21,7 +21,7 @@
     "privacyPolicyURL": "https://whislte.cc.cd/privacy",
     "termsOfServiceURL": "https://whislte.cc.cd/terms",
     "defaultPrompt": [
-      "先确认 No Swipe 上传授权，再从当前抖音页面、账号菜单或头像区域读取昵称和抖音号识别账号；不要打开自己或作者主页。让我确认或修改预设，然后创建目标并用简洁进度文案连续执行。",
+      "每个新任务先在独立抖音标签页打开 https://www.douyin.com/user/self 核验本人账号，同时在另一标签页确认 No Swipe 上传授权；本人页最多尝试两次，再按当前页面可见昵称唯一精确匹配，禁止进入推荐作者主页。让我确认或修改预设，然后创建目标并用简洁进度文案连续执行。",
       "使用已确认的运行配置开始或恢复推荐流采集，并核验账号、配置哈希与持久化状态。",
       "审计多次推荐流任务的计划、尝试、成功结果和画像版本。"
     ],

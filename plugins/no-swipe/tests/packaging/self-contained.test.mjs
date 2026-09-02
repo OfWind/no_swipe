@@ -31,8 +31,9 @@ function isExplicitlyProhibited(statement) {
   return /(?:never|do not|don't|must not|without opening|retired|removed|deprecated|禁止|不要|不得|切勿|避免|无需|不能|不可|废弃|已退役|已移除|未(?:打开|进入|访问|导航|跳转|前往|停留)|不(?:再|应|可|要)?(?:打开|进入|访问|导航|跳转|前往|停留)|不进)/i.test(statement);
 }
 
-// Identity stays on the current page, account menu, or avatar area. Neither
-// the logged-in account's own profile nor another creator profile is an input.
+// Every new task starts identity on the canonical self page. Current-page,
+// account-menu, or avatar nicknames are a bounded exact-match fallback;
+// another creator profile is never an identity input.
 function findProfileNavigationInstructions(source) {
   const navigation = /(?:\b(?:open|visit|enter|navigate(?:\s+to)?|go\s+to|stay\s+on)\b|打开|进入|访问|跳转(?:到|至)?|前往|停留(?:在)?)/i;
   const profileTarget = /(?:\b(?:author(?:'s)?|creator(?:'s)?)\b[^\n]{0,80}\b(?:profile|home\s?page)\b|(?:作者|创作者|达人)[^\n]{0,50}(?:主页|首页|个人页|资料页))/i;
@@ -46,7 +47,7 @@ function findProfileNavigationInstructions(source) {
 function hasCurrentSurfaceIdentityInstruction(source) {
   const currentSurface = /(?:\bcurrent(?:ly visible)? (?:Douyin )?(?:page|surface|feed)\b|\bcurrent page chrome\b|\baccount menu\b|\bavatar(?: label| area)?\b|当前(?:抖音|推荐流)?(?:页面|界面)|推荐流(?:页面|界面)|账号菜单|头像(?:区域|标签|入口)?)/i;
   const identity = /(?:\b(?:identity|account|nickname|Douyin ID)\b|账号|身份|昵称|抖音号)/i;
-  const resolution = /(?:\b(?:read|resolve|identify|verify|recognize)\b|读取|识别|确认|核验|认号)/i;
+  const resolution = /(?:\b(?:read|resolve|identify|verify|recognize|match(?:es)?)\b|读取|识别|确认|核验|匹配|认号)/i;
   return proseStatements(source).some((statement) => (
     currentSurface.test(statement)
     && identity.test(statement)
@@ -153,13 +154,18 @@ test("product entrypoints do not contain the former test persona or implicit exe
   assert.doesNotMatch(sources[2], /科技|3C|人工智能/i);
 });
 
-test("all shipped prompts resolve identity current-surface-first without creator-profile navigation", async () => {
+test("all shipped prompts start new-task identity on the canonical self page", async () => {
   for (const file of SHIPPED_PROMPT_ENTRYPOINTS) {
     const source = await fs.readFile(path.join(ROOT, file), "utf8");
-    assert.doesNotMatch(
+    assert.match(
       source,
-      /(?:https?:\/\/www\.douyin\.com)?\/user\/self/i,
-      `${file} must not route identity through the logged-in account profile`,
+      /(?:every new Codex task|每个新任务)/i,
+      `${file} must repeat identity for each new task`,
+    );
+    assert.match(
+      source,
+      /https:\/\/www\.douyin\.com\/user\/self/i,
+      `${file} must use the canonical logged-in-account identity page`,
     );
     assert.deepEqual(
       findProfileNavigationInstructions(source),
@@ -168,7 +174,7 @@ test("all shipped prompts resolve identity current-surface-first without creator
     );
     assert.ok(
       hasCurrentSurfaceIdentityInstruction(source),
-      `${file} must resolve the visible Douyin identity from the current page, account menu, or avatar`,
+      `${file} must retain the current-page exact-nickname fallback`,
     );
   }
 });

@@ -80,7 +80,10 @@ const workdir = workdirIndex >= 0 ? path.resolve(args[workdirIndex + 1]) : supab
 
 const current = assertVersionState(ROOT).version;
 if (current === version && !flags.has("--reuse-version")) {
-  throw new Error(`${version} is already the current cli-version; pass --reuse-version to rebuild and upload it`);
+  throw new Error(`${version} is already current; changed files require the next semantic version. Use --reuse-version only to promote the exact unchanged candidate already tested under this version`);
+}
+if (current !== version && flags.has("--reuse-version")) {
+  throw new Error("--reuse-version requires the requested version to equal the current tested candidate version");
 }
 if (current !== version) setVersion(version, { root: ROOT });
 if (!flags.has("--skip-tests")) {

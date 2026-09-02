@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -55,6 +55,21 @@ test("up lists bound accounts slim with their recorded nickname", async () => {
   // Slim startup shape: no persona internals in the up output.
   expect(account.positive_topics).toBeUndefined();
   expect(account.content_rules).toBeUndefined();
+});
+
+test("profile identity keeps the latest nickname and retains changed names for audit", async () => {
+  const { runConfig } = await import("../src/config_cmd.ts");
+  const dataDir = mkdtempSync(path.join(tmpdir(), "no-swipe-up-nickname-history-"));
+
+  await runConfig(["profile", "identity", "douyin:test-rename", "--nickname", "旧昵称", "--data-dir", dataDir]);
+  await runConfig(["profile", "identity", "douyin:test-rename", "--nickname", "新昵称", "--data-dir", dataDir]);
+
+  const accountDirectories = readdirSync(path.join(dataDir, "accounts"));
+  expect(accountDirectories).toHaveLength(1);
+  const identityPath = path.join(dataDir, "accounts", accountDirectories[0], "identity.json");
+  const identity = JSON.parse(readFileSync(identityPath, "utf8"));
+  expect(identity.douyin_nickname).toBe("新昵称");
+  expect(identity.nickname_history.map((entry: Record<string, unknown>) => entry.douyin_nickname)).toEqual(["旧昵称"]);
 });
 
 test("up reports pending outbox across every run sqlite, not only runs/current", async () => {

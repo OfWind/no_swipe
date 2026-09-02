@@ -18,8 +18,9 @@ If persistent data, public contracts, queued uploads, or deployed services chang
 
 ## Version and artifact rules
 
-- Run `./scripts/set-version.mjs <x.y.z>` from the authoritative repository to update every version surface, then run `./scripts/set-version.mjs --check <x.y.z>` before build or commit. Do not hand-edit the individual manifests, pin, cloud constant, or lockfile.
-- Candidate build metadata identifies a local immutable file set.
+- Run `./scripts/set-version.mjs <next-x.y.z>` once after the final source change from the authoritative repository to update every version surface, then run `./scripts/set-version.mjs --check <next-x.y.z>` before build or commit. The script rejects the current semantic version. Do not hand-edit the individual manifests, pin, cloud constant, or lockfile.
+- Every changed shipped file set receives a new semantic version. Build metadata alone does not satisfy this rule. Reuse a semantic version only when promoting the exact unchanged candidate that was tested under it.
+- Candidate build metadata identifies a local immutable file set within that semantic version.
 - A published semantic version identifies immutable plugin metadata and CLI artifacts.
 - Never overwrite published Storage objects under an existing version.
 - Build every supported release artifact and verify the generated manifest hashes.
