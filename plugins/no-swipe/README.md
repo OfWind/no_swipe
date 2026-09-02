@@ -9,4 +9,6 @@ codex plugin add no-swipe@no-swipe-marketplace
 
 新开任务后说「开始刷推荐流」。首次会打开工作台配对页，邮箱 OTP 一次即可。之后的版本由 Codex 后台刷新 marketplace，新开任务时引导脚本自动换二进制，用户不用再输入升级命令。
 
+普通运行按 Chrome、Edge、Codex 内置浏览器的顺序选择：先尝试 Codex/ChatGPT 浏览器扩展已连接的用户 Chrome，再尝试已连接的用户 Edge，两者均不可用时才在首次页面操作前回退内置浏览器。No Swipe 不使用 Safari；一旦开始授权、账号核验或采集，整项任务固定使用同一浏览器，不在故障恢复时跨浏览器切换。这里的用户 Chrome/Edge 与 `chrome-devtools-mcp` 启动的隔离诊断浏览器是独立路径。
+
 Windows 上未签名的 `no-swipe.exe` 可能被 SmartScreen 或 360 拦截。这是本机信任提示，不是安装失败；不要改去安装 Node、Python 或 CLI 补丁。正式对外前尽量代码签名。

@@ -51,12 +51,24 @@ test("release-loop acceptance keeps browser and upload evidence independent", as
     fs.readFile(path.join(LOOP_ROOT, "references/acceptance-matrix.md"), "utf8"),
   ]);
 
-  assert.match(browser, /pass in one does not prove the other works/i);
+  assert.match(browser, /pass in one does not prove another works/i);
   assert.match(browser, /separate browser bindings, tabs, run IDs, SQLite files, and evidence/i);
+  assert.match(browser, /agent\.browsers\.get\("chrome"\)/);
+  assert.match(browser, /agent\.browsers\.get\("edge"\)/);
+  assert.match(browser, /agent\.browsers\.get\("iab"\)/);
+  assert.match(browser, /Lock the selected browser family after its first page action/i);
+  assert.match(browser, /explicit user browser choice of Chrome, Edge, or the built-in browser always wins and permits no substitution/i);
+  assert.match(browser, /Safari is unsupported for No Swipe and must never be selected/i);
+  assert.match(browser, /Neither external family is the isolated `chrome-devtools-mcp` diagnostic browser/i);
   assert.match(browser, /tool call returning success is not a verified transition/i);
   assert.match(skill, /browser hot path must not depend on remote upload completion/i);
   assert.match(skill, /local `sent` row as server acceptance without the ACK/i);
   assert.match(matrix, /transition_ok=null/);
+  assert.match(matrix, /connected Chrome selects `agent\.browsers\.get\("chrome"\)`/i);
+  assert.match(matrix, /connected Edge selects `agent\.browsers\.get\("edge"\)`/i);
+  assert.match(matrix, /external Chromium families select `agent\.browsers\.get\("iab"\)` before any page action/i);
+  assert.match(matrix, /Safari is never selected for No Swipe/i);
+  assert.match(matrix, /selected browser family never changes after its first workbench or Douyin action/i);
   assert.match(matrix, /pending=0.*transition_pending=0.*dead=0/s);
 });
 

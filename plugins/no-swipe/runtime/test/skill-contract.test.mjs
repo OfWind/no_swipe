@@ -22,8 +22,8 @@ test("skill gates binding and feed execution on device pairing while allowing se
   assert.match(skill, /mandatory for every new or resumed run/);
   assert.match(skill, /no-swipe auth login/);
   assert.match(skill, /pair_url/);
+  assert.match(skill, /Browser selection: Chrome, then Edge, then the built-in browser/);
   assert.match(skill, /Codex built-in browser/);
-  assert.match(skill, /Unless the user explicitly asks for another browser/);
   assert.match(skill, /scripts\/bootstrap/);
   assert.doesNotMatch(skill, /codex mcp add no-swipe|get_upload_status|ingest_observation_batch/);
   assert.match(skill, /Keep plugin and binary updates inside bootstrap/);
@@ -35,6 +35,35 @@ test("skill gates binding and feed execution on device pairing while allowing se
   assert.match(skill, /Accept any email that can receive and verify the No Swipe OTP/);
   assert.match(skill, /NO_SWIPE_PLUGIN_ROOT/);
   assert.match(skill, /SmartScreen or 360/);
+});
+
+test("skill selects Chrome, then Edge, then the built-in browser before any page action", async () => {
+  const [skill, agentPrompt, manifestSource] = await Promise.all([
+    fs.readFile(path.join(ROOT, "skills/douyin-recommendation-rpa/SKILL.md"), "utf8"),
+    fs.readFile(path.join(ROOT, "skills/douyin-recommendation-rpa/agents/openai.yaml"), "utf8"),
+    fs.readFile(path.join(ROOT, ".codex-plugin/plugin.json"), "utf8"),
+  ]);
+  const selectionIndex = skill.indexOf("## Browser selection: Chrome, then Edge, then the built-in browser");
+  const authIndex = skill.indexOf("## 0. One startup call");
+  const chromeIndex = skill.indexOf('agent.browsers.get("chrome")', selectionIndex);
+  const edgeIndex = skill.indexOf('agent.browsers.get("edge")', selectionIndex);
+  const iabIndex = skill.indexOf('agent.browsers.get("iab")', selectionIndex);
+
+  assert.ok(selectionIndex >= 0 && selectionIndex < authIndex);
+  assert.match(skill, /explicit user choice.*hard constraint.*always wins/smi);
+  assert.match(skill, /chrome:control-chrome/);
+  assert.ok(chromeIndex >= 0 && chromeIndex < edgeIndex && edgeIndex < iabIndex);
+  assert.match(skill, /fallback is allowed only before any browser action/i);
+  assert.match(skill, /Do not call `agent\.browsers\.list\(\)`, `getForUrl\(\)`, or `getDefault\(\)`/);
+  assert.match(skill, /never switch among Chrome, Edge, and the built-in browser mid-run/i);
+  assert.match(skill, /Safari is not a supported No Swipe runtime browser/i);
+  assert.match(skill, /not the isolated `chrome-devtools-mcp` diagnostic browser/i);
+  assert.match(skill, /pair_url[\s\S]*selected browser/);
+  assert.match(agentPrompt, /external Chrome first, then connected external Edge[\s\S]*built-in browser only before any page action/i);
+  assert.match(agentPrompt, /never use Safari/i);
+  assert.match(manifestSource, /Chrome、Edge、Codex 内置浏览器/);
+  assert.match(manifestSource, /不使用 Safari/);
+  assert.match(manifestSource, /首次页面操作前/);
 });
 
 test("skill waits for a compact chat answer before goal execution", async () => {

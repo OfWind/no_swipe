@@ -179,6 +179,37 @@ test("all shipped prompts start new-task identity on the canonical self page", a
   }
 });
 
+test("all shipped prompts keep the Chrome-Edge-built-in browser contract", async () => {
+  for (const file of SHIPPED_PROMPT_ENTRYPOINTS) {
+    const source = await fs.readFile(path.join(ROOT, file), "utf8");
+    assert.match(
+      source,
+      /Chrome/i,
+      `${file} must include Chrome as the first browser family`,
+    );
+    assert.match(
+      source,
+      /Edge/i,
+      `${file} must include Edge as the second browser family`,
+    );
+    assert.match(
+      source,
+      /(?:built-in browser|内置浏览器)/i,
+      `${file} must retain the built-in browser fallback`,
+    );
+    assert.match(
+      source,
+      /(?:before any (?:workbench or Douyin )?page action|before the first page action|首次页面操作前)/i,
+      `${file} must limit fallback to startup`,
+    );
+    assert.match(
+      source,
+      /(?:never use Safari|no Safari runtime path|Safari (?:is )?(?:unsupported|not a supported)|Safari (?:is|must be) never selected|不使用 Safari|Safari 不是 No Swipe 支持的运行浏览器)/i,
+      `${file} must exclude Safari from the No Swipe runtime`,
+    );
+  }
+});
+
 test("shipped preset keeps creator-profile traversal disabled", async () => {
   const preset = JSON.parse(await fs.readFile(
     path.join(ROOT, "config/presets/douyin-youth-white-collar.v1.json"),

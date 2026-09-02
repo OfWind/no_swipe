@@ -24,6 +24,9 @@ Run the scenarios affected by the change. A formal release candidate covers all 
 
 ### Packaging and runtime identity
 
+- With no explicit browser choice, connected Chrome selects `agent.browsers.get("chrome")`; unavailable or disconnected Chrome followed by connected Edge selects `agent.browsers.get("edge")`; unavailable external Chromium families select `agent.browsers.get("iab")` before any page action.
+- Safari is never selected for No Swipe. An explicit Chrome, Edge, or built-in-browser choice permits no substitution, and the selected browser family never changes after its first workbench or Douyin action.
+- Ordinary external Chrome and Edge mean user-owned Codex/ChatGPT browser-extension surfaces, never the isolated `chrome-devtools-mcp` diagnostic browser.
 - Every new Codex task opens `https://www.douyin.com/user/self` as its first Douyin identity action while the workbench stays in a separate tab; a same-task resume reuses the settled identity unless visible evidence contradicts it.
 - The self page receives at most two bounded attempts. A blocker stops the run; a blocker-free missing ID may fall back only to one unique exact visible nickname match.
 - Source, staged candidate, and installed cache contain the same shipped files.

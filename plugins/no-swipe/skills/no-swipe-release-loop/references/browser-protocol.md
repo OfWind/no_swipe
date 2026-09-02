@@ -1,23 +1,33 @@
-# Built-in and external browser protocol
+# Built-in and external Chromium browser protocol
 
 Read this reference before any live acceptance. Then read the sibling `douyin-recommendation-rpa/SKILL.md` from the exact candidate plugin root and the available control skill for the selected browser.
 
 ## Two independent browser adapters
 
-Treat Codex's built-in browser and external Chrome as independent implementations of the same RPA contract. A pass in one does not prove the other works.
+Treat Codex's built-in browser, external Chrome, and external Edge as independent browser-family implementations of the same RPA contract. A pass in one does not prove another works.
 
-Keep separate browser bindings, tabs, run IDs, SQLite files, and evidence for the two modes.
+Keep separate browser bindings, tabs, run IDs, SQLite files, and evidence for each tested mode.
 
-| Concern | Codex built-in browser | External Chrome |
-|---|---|---|
-| Activation | Current task must have the candidate Skill loaded | Chrome connector/extension must control the selected tab |
-| Ownership | Preserve the built-in browser binding and Douyin tab across turns | Preserve the Chrome session and exact claimed tab across turns |
-| Read path | Candidate `douyin_page_facts.js` through read-only evaluate | The same candidate facts source through read-only evaluate |
-| Write path | Locator/CUA supported by the live tab | Locator/CUA supported by the external Chrome tab |
-| Persistence | Dedicated RunConfig, run ID, and SQLite | Different dedicated RunConfig, run ID, and SQLite |
-| Claim | Proves the built-in adapter only | Proves the external adapter only |
+| Concern | Codex built-in browser | External Chrome | External Edge |
+|---|---|---|---|
+| Activation | Current task must have the candidate Skill loaded | Chrome extension must control the selected tab | Edge extension must control the selected tab |
+| Ownership | Preserve the built-in binding and Douyin tab across turns | Preserve the Chrome session and exact claimed tab | Preserve the Edge session and exact claimed tab |
+| Read path | Candidate `douyin_page_facts.js` through read-only evaluate | The same candidate facts source through read-only evaluate | The same candidate facts source through read-only evaluate |
+| Write path | Locator/CUA supported by the live tab | Locator/CUA supported by the external Chrome tab | Locator/CUA supported by the external Edge tab |
+| Persistence | Dedicated RunConfig, run ID, and SQLite | Different dedicated RunConfig, run ID, and SQLite | Different dedicated RunConfig, run ID, and SQLite |
+| Claim | Proves the built-in family only | Proves external Chrome only | Proves external Edge only |
 
-Do not use one browser as an automatic fallback for the other. An external Chrome comparison is diagnostic evidence; it does not recover or validate a broken built-in binding.
+## Ordinary runtime selection
+
+Choose the browser once, before the first workbench or Douyin page action:
+
+1. An explicit user browser choice of Chrome, Edge, or the built-in browser always wins and permits no substitution. Safari is unsupported for No Swipe and must never be selected.
+2. Without an explicit choice, call `agent.browsers.get("chrome")` directly. Success selects the user-owned external Chrome controlled through the Codex/ChatGPT browser extension.
+3. When Chrome is initially unavailable or disconnected, call `agent.browsers.get("edge")` directly. Success selects the user-owned external Edge controlled through the Codex/ChatGPT browser extension. Neither external family is the isolated `chrome-devtools-mcp` diagnostic browser.
+4. When neither external Chromium family is available, call `agent.browsers.get("iab")` and use the Codex built-in browser. Do not call `agent.browsers.list()`, `getForUrl()`, or `getDefault()` for ordinary No Swipe selection.
+5. Lock the selected browser family after its first page action. Recover missing or stale tabs through the same binding. A timeout, login gap, page failure, runner stop, or Goal resume must never trigger a mid-run switch to another browser family.
+
+This startup fallback does not merge browser families. Evidence remains browser-specific, and a pass in Chrome or Edge does not recover or validate another browser binding.
 
 ## Live-test preflight
 

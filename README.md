@@ -4,6 +4,8 @@ No Swipe is a Codex plugin for auditable Douyin recommendation-feed testing. It 
 
 Each Douyin account has one versioned logical interest profile. Runs reuse that profile and separately confirm their targets, rates, caps, and authorizations. The plugin ships no topic persona: technology, 3C, AI, and all other interests are user/account data rather than product defaults.
 
+For ordinary runs, No Swipe selects Chrome, then Edge, then the Codex built-in browser. It first tries user-owned Chrome and Edge connected through the Codex/ChatGPT browser extension, and falls back to the built-in browser only when both external Chromium families are unavailable before the first page action. Safari is unsupported. The selected browser family is then fixed for the task; recovery never switches browser families mid-run. These extension paths are distinct from the isolated `chrome-devtools-mcp` diagnostic comparison below.
+
 ## Install
 
 Add this Git marketplace:

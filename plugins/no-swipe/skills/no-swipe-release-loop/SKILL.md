@@ -1,6 +1,6 @@
 ---
 name: no-swipe-release-loop
-description: Build, install, test, diagnose, iterate, and release No Swipe candidate plugins for Douyin RPA across Codex's built-in browser and an explicitly requested external Chrome. Use for candidate packaging, closed-loop acceptance, regression analysis, or release readiness; use the sibling douyin-recommendation-rpa skill for ordinary feed collection.
+description: Build, install, test, diagnose, iterate, and release No Swipe candidate plugins for Douyin RPA with the ordinary browser priority Chrome, Edge, then the Codex built-in browser, no Safari runtime path, and independent acceptance evidence for each browser family. Use for candidate packaging, closed-loop acceptance, regression analysis, or release readiness; use the sibling douyin-recommendation-rpa skill for ordinary feed collection.
 ---
 
 # No Swipe candidate acceptance and release loop
@@ -108,10 +108,13 @@ A running Codex task may retain old Skill context and module imports after insta
 
 ### 5. Run progressive live acceptance
 
-Follow the acceptance matrix and browser protocol. Full dual-browser acceptance uses independent test sessions for:
+Follow the acceptance matrix and browser protocol. Full browser acceptance uses independent test sessions for:
 
-- the Codex built-in browser; and
-- external Chrome only when explicitly selected or required by the acceptance scope.
+- the Codex built-in browser;
+- external Chrome through the Codex/ChatGPT browser extension; and
+- external Edge through the Codex/ChatGPT browser extension when Edge is part of the required acceptance scope.
+
+For a browser-selection change, also run clean-task preflight smokes before live feed acceptance: with connected Chrome available and no explicit browser choice, the ordinary runtime must select `agent.browsers.get("chrome")`; when Chrome is absent or initially disconnected and Edge is connected, it must select `agent.browsers.get("edge")`; when neither external Chromium family is available, it must select `agent.browsers.get("iab")` before any page action. Safari must never be selected. An explicit supported-browser choice remains a hard constraint. Once the selected browser performs its first page action, no timeout, login state, stale tab, or runner failure may switch the task to another browser family.
 
 Start with an all-zero-interaction RunConfig. Keep separate browser bindings, tabs, run IDs, SQLite files, and evidence for each mode. Advance from 1 item to 10 items to the agreed full target only after the prior stage passes.
 
