@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { authStatus, readCredentials } from "./auth.ts";
+import { authStatus } from "./auth.ts";
 import { loadCloudConfig } from "./cloud.ts";
 import { listAccountProfiles, readAccountIdentity } from "./config.mjs";
 import { buildEntryPlan } from "./feed_actions.ts";
@@ -59,6 +59,6 @@ export async function up(dataDir = DATA_DIR) {
       entry_plan: buildEntryPlan(),
     },
     legacy_workspace_data: legacyWorkspaceData,
-    workbench_url: readCredentials()?.workbench_url ?? config.workbench_url,
+    workbench_url: config.workbench_url,
   };
 }

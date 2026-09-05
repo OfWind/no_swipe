@@ -18,8 +18,8 @@ const BAKED: CloudConfig = {
   publishable_key: "sb_publishable_Jm6gViTHXW0c4hEmX26lqw_xfcLXP78",
   edge_function: "ingest",
   contract_version: 2,
-  plugin_version: "0.4.21",
-  workbench_url: "https://whislte.cc.cd",
+  plugin_version: "0.5.0",
+  workbench_url: "https://fai.zhuanspirit.com/creators",
   releases_base_url: "https://kigrzhmcphrkqtuqthwb.supabase.co/storage/v1/object/public/no-swipe-releases",
 };
 
@@ -46,7 +46,7 @@ export function loadCloudConfig(): CloudConfig {
     // binary report an older cached client identity.
     contract_version: BAKED.contract_version,
     plugin_version: BAKED.plugin_version,
-    workbench_url: String(raw.workbench_url || process.env.NO_SWIPE_WORKBENCH_URL || BAKED.workbench_url).replace(/\/$/, ""),
+    workbench_url: String(process.env.NO_SWIPE_WORKBENCH_URL || raw.workbench_url || BAKED.workbench_url).replace(/\/$/, ""),
     releases_base_url: String(raw.releases_base_url || BAKED.releases_base_url),
   };
 }

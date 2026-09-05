@@ -50,7 +50,7 @@ codex plugin add no-swipe@no-swipe-marketplace
 | 出包平台 | `darwin-arm64` / `darwin-x64` / `windows-x64` 同时出包；Mac 先开发，**Windows 真机过了才能发** |
 | 安装 | marketplace 命令与桌面端加市场不变；用户不选系统、不下手动 dmg/exe |
 | 准入 | 本期开放注册，不限制邮箱域。未来收紧时只需在 `pair-approve` 签发端加允许名单（环境变量配置），`ingest` 以吊销机制兜底，无需改客户端 |
-| 域名 | 工作台目标域 `whislte.cc.cd`（全部 URL 配置化，可一处替换）。**离开 `workers.dev` 是硬要求**；Cloudflare 绑自定义域不等于大陆能开。配对 API 与 ingest 已在 `supabase.co`，与数据面同通道 |
+| 域名 | 工作台目标域 `fai.zhuanspirit.com/creators`（全部 URL 配置化，可一处替换）。**离开 `workers.dev` 是硬要求**；Cloudflare 绑自定义域不等于大陆能开。配对 API 与 ingest 已在 `supabase.co`，与数据面同通道 |
 | 旧路径 | 硬切。存量 2–3 人口头通知；Railway `/mcp` 与 ingest JWT 上传各留两周后删除 |
 | `.app.json` | 删除，不留第二条认证 |
 | 默认 MCP | `.mcp.json` 去掉 `no-swipe` **和** `chrome-devtools`。诊断 reference 可保留，但不得注册 `npx` |
@@ -129,7 +129,7 @@ sequenceDiagram
 7. **`/pair`**：未登录走现有 OTP（`src/features/auth-session`）。登录后展示配对码 +「同意授权」→ `pair-approve`。成功后提示回到 Codex。本期开放注册（`shouldCreateUser: true`）
 8. **已授权设备**：账号菜单或设置页列出本人 `device_tokens`（`host_fingerprint`、创建/最近使用）+ 吊销
 9. **privacy / terms**：`no_swipe/mcp-server/public` 迁到工作台 `/privacy`、`/terms`
-10. **URL 配置化**：工作台 origin、ingest、pair、二进制下载基址一处可换。当前工作台域 `whislte.cc.cd`。插件读 `no_swipe/plugins/no-swipe/config/supabase.json`（可增 `workbench_url` / `releases_base_url`）
+10. **URL 配置化**：工作台 origin、ingest、pair、二进制下载基址一处可换。当前工作台域 `fai.zhuanspirit.com/creators`。插件读 `no_swipe/plugins/no-swipe/config/supabase.json`（可增 `workbench_url` / `releases_base_url`）
 
 ## Phase 3 — `no-swipe` 单文件 CLI（`no_swipe/cli/`，Bun + TypeScript）
 

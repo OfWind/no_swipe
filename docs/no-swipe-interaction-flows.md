@@ -2,7 +2,7 @@
 
 > 日期：2026-08-27  
 > 范围：插件安装 → 本机二进制 → 设备配对 → 推荐流采集 → 上传 → 工作台回看  
-> 工作台：`https://whislte.cc.cd`  
+> 工作台：`https://fai.zhuanspirit.com/creators`<br>
 > 权威 skill：`plugins/no-swipe/skills/douyin-recommendation-rpa/SKILL.md`  
 > 本文描述**现行实现**，不是架构草案。配对页自动授权、`start` 默认 1000 条 observed、follow 走配额 `plannedActions`、静默自动更新、刷流不进创作者主页、引导脚本清理旧包，均已按 0.3.9 落地。
 
@@ -18,7 +18,7 @@
 | Codex Agent | 跑 skill：引导二进制、开浏览器、调 CLI、执行推荐流、更新 Goal |
 | Codex 内置浏览器 | 打开配对页、抖音、工作台；二进制**不**开浏览器 |
 | `no-swipe` CLI | 配对、配置物化、`start` / `step` / `sync` / `finish` / `export` |
-| 工作台 SPA | Cloudflare Worker 托管；登录与 `/pair` |
+| 工作台 SPA | SIC 内网托管；公司 SSO、工作台登录与 `/creators/pair` |
 | Edge Functions | `pair-start` / `pair-approve` / `pair-poll` / `ingest` / `list_device_tokens` / `revoke_device_token` |
 | Postgres | `device_pairings`、`device_tokens`、`observations`、达人读模型 |
 | Storage | 公开只读 `no-swipe-releases/<version>/` |
@@ -39,7 +39,7 @@ flowchart TB
   end
 
   subgraph Cloud["云"]
-    W["工作台 whislte.cc.cd"]
+    W["工作台 fai.zhuanspirit.com/creators"]
     Auth[Supabase Auth]
     EF[Edge Functions]
     PG[(Postgres)]
@@ -240,10 +240,11 @@ sequenceDiagram
   CLI->>PS: POST {} + publishable key
   PS->>PG: 限流后插入 device_pairings<br/>status=pending，secret 只存 hash
   PS-->>CLI: code + device_secret（明文只回这一次）
-  CLI-->>Agent: pair_url = https://whislte.cc.cd/pair?code=…
+  CLI-->>Agent: pair_url = https://fai.zhuanspirit.com/creators/pair?code=…
   Note over CLI: 二进制只打印 URL，不开浏览器
 
   Agent->>Br: 打开该 pair_url（不要只把链接贴进对话）
+  Br->>Br: 完成公司 SSO，保留原始 pair_url 与 code
   Br->>Pair: 渲染配对页
 
   alt 已有工作台 session
@@ -577,8 +578,8 @@ sequenceDiagram
   participant Rel as bun scripts/release.ts
   participant Stor as Storage
   participant Git as GitHub no_swipe
-  participant WB as wrangler deploy
-  participant CDN as whislte.cc.cd
+  participant WB as SIC 工作台部署
+  participant CDN as fai.zhuanspirit.com/creators
 
   Dev->>Rel: 指定版本（或 --reuse-version）
   Rel->>Rel: CLI 测试 + 插件测试
@@ -587,11 +588,11 @@ sequenceDiagram
   Rel->>Git: bump plugin.json + marketplace.json + cli-version.json 并 push
   Note over Git: 两处版本必须一起 bump，否则宿主缓存不激活新壳
 
-  Dev->>WB: 工作台含 /pair 的提交 push 后 pnpm deploy:cloudflare
-  WB->>CDN: 新 SPA + Worker
+  Dev->>WB: 通过 SIC 发布包含 /creators/pair 的工作台构建
+  WB->>CDN: 新 SPA + Node 服务
 ```
 
-匿名可读 Storage，写入关闭。禁止用「latest」文件名覆盖而不改版本。工作台 `workers_dev: false`，只绑自定义域。
+匿名可读 Storage，写入关闭。禁止用「latest」文件名覆盖而不改版本。工作台使用 SIC 内网入口 `/creators/`，公司 SSO 与工作台用户会话分别完成认证。
 
 ---
 
@@ -628,8 +629,8 @@ Agent **不要**做的事：向用户要 OpenAI Key、设备 token、OTP、邮�
 
 | 动作 | 入口 |
 |---|---|
-| 配对页 | `https://whislte.cc.cd/pair?code=XXX-XXX` |
-| 登录 | `https://whislte.cc.cd/login?redirect=…` |
+| 配对页 | `https://fai.zhuanspirit.com/creators/pair?code=XXX-XXX` |
+| 登录 | `https://fai.zhuanspirit.com/creators/login?redirect=…` |
 | 申请码 | `POST …/functions/v1/pair-start` |
 | 批准 | `POST …/functions/v1/pair-approve`（用户 JWT） |
 | 兑付 | `POST …/functions/v1/pair-poll` |

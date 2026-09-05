@@ -108,7 +108,12 @@ test("bootstrap scripts and cli version are packaged for the host binary", async
   await fs.access(path.join(ROOT, "scripts/bootstrap.sh"));
   await fs.access(path.join(ROOT, "scripts/bootstrap.ps1"));
   const supabase = JSON.parse(await fs.readFile(path.join(ROOT, "config/supabase.json"), "utf8"));
-  assert.match(supabase.workbench_url, /^https:\/\//);
+  assert.equal(supabase.workbench_url, "https://fai.zhuanspirit.com/creators");
+  const manifest = JSON.parse(await fs.readFile(path.join(ROOT, ".codex-plugin/plugin.json"), "utf8"));
+  assert.equal(manifest.homepage, `${supabase.workbench_url}/`);
+  assert.equal(manifest.interface.websiteURL, `${supabase.workbench_url}/`);
+  assert.equal(manifest.interface.privacyPolicyURL, `${supabase.workbench_url}/privacy`);
+  assert.equal(manifest.interface.termsOfServiceURL, `${supabase.workbench_url}/terms`);
   assert.match(supabase.releases_base_url, /no-swipe-releases/);
 });
 
@@ -125,6 +130,9 @@ test("bootstrap keeps the current binary and deletes older version directories",
     await fs.chmod(currentBin, 0o755);
     await fs.mkdir(path.join(binRoot, "keep-me"), { recursive: true });
     await fs.writeFile(path.join(home, ".config/no-swipe/credentials.json"), "{\"ok\":true}\n");
+    await fs.writeFile(path.join(home, ".config/no-swipe/supabase.json"), JSON.stringify({
+      workbench_url: "https://legacy.example/workbench",
+    }));
     const { stdout } = await execFileAsync("bash", [path.join(ROOT, "scripts/bootstrap.sh")], {
       env: { ...process.env, HOME: home, NO_SWIPE_HOME: home },
     });
@@ -137,6 +145,11 @@ test("bootstrap keeps the current binary and deletes older version directories",
     await fs.access(path.join(binRoot, version, "no-swipe"));
     await fs.access(path.join(binRoot, "keep-me"));
     await fs.access(path.join(home, ".config/no-swipe/credentials.json"));
+    assert.equal(await fs.readFile(path.join(home, ".config/no-swipe/credentials.json"), "utf8"), "{\"ok\":true}\n");
+    assert.equal(
+      await fs.readFile(path.join(home, ".config/no-swipe/supabase.json"), "utf8"),
+      await fs.readFile(path.join(ROOT, "config/supabase.json"), "utf8"),
+    );
     await assert.rejects(fs.access(path.join(binRoot, "0.3.5")));
   } finally {
     await fs.rm(home, { recursive: true, force: true });

@@ -6,6 +6,14 @@ Each Douyin account has one versioned logical interest profile. Runs reuse that 
 
 For ordinary runs, No Swipe selects Chrome, then Edge, then the Codex built-in browser. It first tries user-owned Chrome and Edge connected through the Codex/ChatGPT browser extension, and falls back to the built-in browser only when both external Chromium families are unavailable before the first page action. Safari is unsupported. The selected browser family is then fixed for the task; recovery never switches browser families mid-run. These extension paths are distinct from the isolated `chrome-devtools-mcp` diagnostic comparison below.
 
+## Workbench
+
+No Swipe 0.5.0 uses [the company workbench](https://fai.zhuanspirit.com/creators/). Pairing opens `/creators/pair?code=…` and requires company network access. Complete company SSO, then the workbench login when prompted; preserve the pairing URL and its code across both steps.
+
+Bootstrap refreshes the local endpoint configuration from the installed plugin. Startup uses this current configuration even when existing device credentials contain an older workbench URL. Existing device tokens remain in place. `NO_SWIPE_WORKBENCH_URL` overrides the configured workbench URL for an explicitly selected environment.
+
+Device pairing APIs, observation uploads, and binary downloads continue to use their configured Supabase endpoints. A version commit and branch push prepare the source; activating 0.5.0 also requires its matching binary artifacts and marketplace publication.
+
 ## Install
 
 Add this Git marketplace:
